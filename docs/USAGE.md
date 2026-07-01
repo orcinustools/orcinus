@@ -168,22 +168,34 @@ orcinus cluster init [flags]
 | `--name <str>` | `orcinus` | Cluster / server name |
 | `--image <str>` | built-in | Cluster runtime image |
 | `--port <n>` | `6443` | Host port for the API server |
+| `--bind <ip>` | `127.0.0.1` | Host interface to publish the API port on (`0.0.0.0` = all) |
+| `--advertise <host>` | — | Address other nodes/clients use to reach this server (adds a TLS SAN; enables remote join) |
 | `--token <str>` | auto | Join token for other nodes |
 | `--cluster-init` | `false` | Embedded etcd (HA mode) — see [§6](#6-datastore) |
 | `--datastore-endpoint <str>` | SQLite | External datastore — see [§6](#6-datastore) |
 | `--kubeconfig <path>` | `~/.orcinus/kubeconfig` | Where to write the kubeconfig |
 
 ```bash
-orcinus cluster init
+orcinus cluster init                              # safe default: API bound to 127.0.0.1
 orcinus cluster init --name prod --port 6550
+orcinus cluster init --advertise 10.0.0.5         # reachable by remote nodes/clients
 ```
 
 On success it prints the kubeconfig path and a ready-to-paste `orcinus cluster join …`.
 
+> **Networking & security.** By default the API server is published on
+> `127.0.0.1` only — reachable from this machine, not the network. This is the
+> safe default and is single-host (server + local agents). To let nodes on **other
+> hosts** join, set `--advertise <ip-or-host>` (which also opens the bind to all
+> interfaces and adds the address to the TLS cert). Only do this behind a firewall
+> you trust; the join token grants cluster access.
+
 ### 5.2 `orcinus cluster join`
 
 Join a node to an existing cluster. With no flags, reads the saved cluster state
-(so on the init host, `orcinus cluster join` just works).
+(so on the init host, `orcinus cluster join` just works). Use `--role server` to
+add another **master** (control plane), or `--role agent` (default) to add a
+**worker**. See [`CLUSTER.md`](./CLUSTER.md) for full topologies.
 
 ```
 orcinus cluster join [flags]
@@ -191,15 +203,21 @@ orcinus cluster join [flags]
 
 | Flag | Default | Description |
 |---|---|---|
+| `--role <agent\|server>` | `agent` | `agent` = worker, `server` = control-plane/master |
 | `--server <url>` | from saved state | Cluster server URL |
 | `--token <str>` | from saved state | Join token |
-| `--name <str>` | `<cluster>-agent` | Agent node/container name |
+| `--name <str>` | `<cluster>-<role>` | Node/container name |
 | `--image <str>` | from saved state | Cluster runtime image |
 
 ```bash
-orcinus cluster join                                        # on the init host
-orcinus cluster join --server https://10.0.0.5:6443 --token <token>
+orcinus cluster join                                        # worker, on the init host
+orcinus cluster join --role agent  --server https://10.0.0.5:6443 --token <token>
+orcinus cluster join --role server --server https://10.0.0.5:6443 --token <token>
 ```
+
+> Adding masters (`--role server`) requires the cluster to have an HA datastore
+> (`init --cluster-init` or `--datastore-endpoint`); the default SQLite datastore
+> supports a single master only.
 
 ### 5.3 `orcinus cluster status`
 

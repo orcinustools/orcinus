@@ -28,6 +28,8 @@ type InitOptions struct {
 	Name              string
 	Image             string
 	APIPort           int      // host port mapped to the in-container API (6443)
+	BindAddress       string   // host interface to publish the API port on (default 127.0.0.1)
+	Advertise         string   // address other nodes/clients use (TLS SAN, kubeconfig, join)
 	Token             string   // optional fixed join token
 	ClusterInit       bool     // embedded etcd (HA)
 	DatastoreEndpoint string   // external datastore
@@ -51,6 +53,7 @@ type JoinOptions struct {
 	Image     string
 	ServerURL string
 	Token     string
+	Role      string // "agent" (worker, default) or "server" (control-plane/master)
 }
 
 // Init provisions a single-node cluster and writes kubeconfig + state.
@@ -67,6 +70,13 @@ func Init(o InitOptions) (*InitResult, error) {
 	if o.KubeconfigPath == "" {
 		o.KubeconfigPath = KubeconfigPath()
 	}
+	if o.BindAddress == "" {
+		o.BindAddress = "127.0.0.1"
+	}
+	// Advertising a reachable address implies listening beyond loopback.
+	if o.Advertise != "" && o.BindAddress == "127.0.0.1" {
+		o.BindAddress = "0.0.0.0"
+	}
 
 	// Idempotency: reuse an already-running cluster of the same name; refuse a
 	// stopped one so state is never silently inconsistent.
@@ -79,10 +89,14 @@ func Init(o InitOptions) (*InitResult, error) {
 			"run", "-d", "--privileged",
 			"--name", o.Name,
 			"--label", "orcinus.cluster=" + o.Name,
-			"-p", fmt.Sprintf("127.0.0.1:%d:6443", o.APIPort),
+			"-p", fmt.Sprintf("%s:%d:6443", o.BindAddress, o.APIPort),
 			o.Image, "server",
 			"--write-kubeconfig-mode=644",
-			"--tls-san=127.0.0.1",
+		}
+		// TLS SANs: always loopback, plus any advertised/bound address so the
+		// generated cert is valid for the address clients actually use.
+		for _, san := range tlsSANs(o.BindAddress, o.Advertise) {
+			args = append(args, "--tls-san="+san)
 		}
 		if o.Token != "" {
 			args = append(args, "--token="+o.Token)
@@ -110,7 +124,12 @@ func Init(o InitOptions) (*InitResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read kubeconfig: %w\n%s", err, raw)
 	}
-	kubeconfig := strings.ReplaceAll(raw, "127.0.0.1:6443", fmt.Sprintf("127.0.0.1:%d", o.APIPort))
+	// kubeconfig points at the advertised address if set, else loopback.
+	kcHost := "127.0.0.1"
+	if o.Advertise != "" {
+		kcHost = o.Advertise
+	}
+	kubeconfig := strings.ReplaceAll(raw, "127.0.0.1:6443", fmt.Sprintf("%s:%d", kcHost, o.APIPort))
 	if err := writeFile(o.KubeconfigPath, kubeconfig, 0o600); err != nil {
 		return nil, err
 	}
@@ -125,10 +144,17 @@ func Init(o InitOptions) (*InitResult, error) {
 		return nil, fmt.Errorf("inspect container: %w\n%s", err, ip)
 	}
 
+	// Join URL: the advertised host:port for remote nodes, else the container's
+	// bridge IP (same-host agents only).
+	serverURL := fmt.Sprintf("https://%s:6443", strings.TrimSpace(ip))
+	if o.Advertise != "" {
+		serverURL = fmt.Sprintf("https://%s:%d", o.Advertise, o.APIPort)
+	}
+
 	res := &InitResult{
 		Name:           o.Name,
 		Image:          o.Image,
-		ServerURL:      fmt.Sprintf("https://%s:6443", strings.TrimSpace(ip)),
+		ServerURL:      serverURL,
 		Token:          strings.TrimSpace(token),
 		APIPort:        o.APIPort,
 		KubeconfigPath: o.KubeconfigPath,
@@ -139,9 +165,18 @@ func Init(o InitOptions) (*InitResult, error) {
 	return res, nil
 }
 
-// Join starts an agent node that joins an existing cluster. If ServerURL/Token
-// are empty, they are read from saved cluster state.
+// Join adds a node to an existing cluster. Role "agent" (default) adds a worker;
+// role "server" adds a control-plane (master) node — which requires the cluster
+// to have been created with an HA datastore (see Init --cluster-init or
+// --datastore-endpoint). If ServerURL/Token are empty they come from saved state.
 func Join(o JoinOptions) error {
+	if o.Role == "" {
+		o.Role = "agent"
+	}
+	if o.Role != "agent" && o.Role != "server" {
+		return fmt.Errorf("invalid --role %q (want: agent|server)", o.Role)
+	}
+
 	clusterName := DefaultName
 	if st, err := LoadState(); err == nil {
 		clusterName = st.Name
@@ -154,9 +189,6 @@ func Join(o JoinOptions) error {
 		if o.Image == "" {
 			o.Image = st.Image
 		}
-		if o.Name == "" {
-			o.Name = st.Name + "-agent"
-		}
 	}
 	if o.ServerURL == "" || o.Token == "" {
 		return fmt.Errorf("no --server/--token given and no saved cluster state")
@@ -165,19 +197,30 @@ func Join(o JoinOptions) error {
 		o.Image = DefaultImage
 	}
 	if o.Name == "" {
-		o.Name = DefaultName + "-agent"
+		o.Name = clusterName + "-" + o.Role
 	}
 
-	args := []string{
+	base := []string{
 		"run", "-d", "--privileged",
 		"--name", o.Name,
 		"--label", "orcinus.cluster=" + clusterName,
-		"-e", "K3S_URL=" + o.ServerURL,
-		"-e", "K3S_TOKEN=" + o.Token,
-		o.Image, "agent",
+	}
+	var args []string
+	if o.Role == "server" {
+		// Additional control-plane node joins the existing server.
+		args = append(base, o.Image, "server",
+			"--server", o.ServerURL,
+			"--token", o.Token,
+		)
+	} else {
+		args = append(base,
+			"-e", "K3S_URL="+o.ServerURL,
+			"-e", "K3S_TOKEN="+o.Token,
+			o.Image, "agent",
+		)
 	}
 	if out, err := docker(args...); err != nil {
-		return fmt.Errorf("start agent: %w\n%s", err, out)
+		return fmt.Errorf("start %s node: %w\n%s", o.Role, err, out)
 	}
 	return nil
 }
@@ -234,6 +277,26 @@ func Down(name string) (int, error) {
 	_ = os.Remove(KubeconfigPath())
 	_ = os.Remove(statePath())
 	return removed, nil
+}
+
+// tlsSANs returns the TLS subject-alternative-names for the API server cert:
+// always 127.0.0.1, plus the advertised address and a concrete bind address.
+func tlsSANs(bind, advertise string) []string {
+	sans := []string{"127.0.0.1"}
+	add := func(s string) {
+		if s == "" || s == "0.0.0.0" {
+			return
+		}
+		for _, e := range sans {
+			if e == s {
+				return
+			}
+		}
+		sans = append(sans, s)
+	}
+	add(advertise)
+	add(bind)
+	return sans
 }
 
 // containerState reports whether a container exists and whether it is running.

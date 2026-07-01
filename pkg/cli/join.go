@@ -28,7 +28,8 @@ func newJoinCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&o.ServerURL, "server", "", "cluster server URL (default: from saved state)")
 	f.StringVar(&o.Token, "token", "", "join token (default: from saved state)")
-	f.StringVar(&o.Name, "name", "", "agent node/container name")
+	f.StringVar(&o.Role, "role", "agent", "node role: agent (worker) or server (control-plane/master)")
+	f.StringVar(&o.Name, "name", "", "node/container name (default: <cluster>-<role>)")
 	f.StringVar(&o.Image, "image", "", "cluster runtime image (default: from saved state)")
 	return cmd
 }
