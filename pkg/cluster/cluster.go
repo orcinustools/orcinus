@@ -68,28 +68,36 @@ func Init(o InitOptions) (*InitResult, error) {
 		o.KubeconfigPath = KubeconfigPath()
 	}
 
-	// Build the runtime server command.
-	args := []string{
-		"run", "-d", "--privileged",
-		"--name", o.Name,
-		"-p", fmt.Sprintf("127.0.0.1:%d:6443", o.APIPort),
-		o.Image, "server",
-		"--write-kubeconfig-mode=644",
-		"--tls-san=127.0.0.1",
+	// Idempotency: reuse an already-running cluster of the same name; refuse a
+	// stopped one so state is never silently inconsistent.
+	exists, running := containerState(o.Name)
+	if exists && !running {
+		return nil, fmt.Errorf("a cluster named %q already exists but is not running; run `orcinus down` first", o.Name)
 	}
-	if o.Token != "" {
-		args = append(args, "--token="+o.Token)
-	}
-	if o.ClusterInit {
-		args = append(args, "--cluster-init")
-	}
-	if o.DatastoreEndpoint != "" {
-		args = append(args, "--datastore-endpoint="+o.DatastoreEndpoint)
-	}
-	args = append(args, o.ExtraServerArgs...)
+	if !exists {
+		args := []string{
+			"run", "-d", "--privileged",
+			"--name", o.Name,
+			"--label", "orcinus.cluster=" + o.Name,
+			"-p", fmt.Sprintf("127.0.0.1:%d:6443", o.APIPort),
+			o.Image, "server",
+			"--write-kubeconfig-mode=644",
+			"--tls-san=127.0.0.1",
+		}
+		if o.Token != "" {
+			args = append(args, "--token="+o.Token)
+		}
+		if o.ClusterInit {
+			args = append(args, "--cluster-init")
+		}
+		if o.DatastoreEndpoint != "" {
+			args = append(args, "--datastore-endpoint="+o.DatastoreEndpoint)
+		}
+		args = append(args, o.ExtraServerArgs...)
 
-	if out, err := docker(args...); err != nil {
-		return nil, fmt.Errorf("start cluster: %w\n%s", err, out)
+		if out, err := docker(args...); err != nil {
+			return nil, fmt.Errorf("start cluster: %w\n%s", err, out)
+		}
 	}
 
 	// Wait for the node to become Ready.
@@ -134,11 +142,9 @@ func Init(o InitOptions) (*InitResult, error) {
 // Join starts an agent node that joins an existing cluster. If ServerURL/Token
 // are empty, they are read from saved cluster state.
 func Join(o JoinOptions) error {
-	if o.ServerURL == "" || o.Token == "" {
-		st, err := LoadState()
-		if err != nil {
-			return fmt.Errorf("no --server/--token given and no saved cluster state: %w", err)
-		}
+	clusterName := DefaultName
+	if st, err := LoadState(); err == nil {
+		clusterName = st.Name
 		if o.ServerURL == "" {
 			o.ServerURL = st.ServerURL
 		}
@@ -152,6 +158,9 @@ func Join(o JoinOptions) error {
 			o.Name = st.Name + "-agent"
 		}
 	}
+	if o.ServerURL == "" || o.Token == "" {
+		return fmt.Errorf("no --server/--token given and no saved cluster state")
+	}
 	if o.Image == "" {
 		o.Image = DefaultImage
 	}
@@ -162,6 +171,7 @@ func Join(o JoinOptions) error {
 	args := []string{
 		"run", "-d", "--privileged",
 		"--name", o.Name,
+		"--label", "orcinus.cluster=" + clusterName,
 		"-e", "K3S_URL=" + o.ServerURL,
 		"-e", "K3S_TOKEN=" + o.Token,
 		o.Image, "agent",
@@ -170,6 +180,69 @@ func Join(o JoinOptions) error {
 		return fmt.Errorf("start agent: %w\n%s", err, out)
 	}
 	return nil
+}
+
+// StatusResult describes the current cluster.
+type StatusResult struct {
+	State   *InitResult
+	Running bool
+	Nodes   string // best-effort `kubectl get nodes -o wide` output
+}
+
+// Status reports on the orcinus-managed cluster (from saved state).
+func Status(name string) (*StatusResult, error) {
+	st, err := LoadState()
+	if err != nil {
+		return nil, fmt.Errorf("no cluster state found; run `orcinus init` first")
+	}
+	if name == "" {
+		name = st.Name
+	}
+	_, running := containerState(name)
+	res := &StatusResult{State: st, Running: running}
+	if running {
+		if out, err := docker("exec", name, "kubectl", "get", "nodes", "-o", "wide"); err == nil {
+			res.Nodes = out
+		}
+	}
+	return res, nil
+}
+
+// Down stops and removes the cluster (server + all joined nodes) and clears the
+// saved kubeconfig/state.
+func Down(name string) (int, error) {
+	if name == "" {
+		if st, err := LoadState(); err == nil {
+			name = st.Name
+		} else {
+			name = DefaultName
+		}
+	}
+
+	removed := 0
+	// Remove every container labeled for this cluster (server + agents).
+	if ids, err := docker("ps", "-aq", "--filter", "label=orcinus.cluster="+name); err == nil {
+		for _, id := range strings.Fields(ids) {
+			if _, err := docker("rm", "-f", id); err == nil {
+				removed++
+			}
+		}
+	}
+	// Fallback for clusters created before labels existed.
+	_, _ = docker("rm", "-f", name)
+
+	_ = os.Remove(KubeconfigPath())
+	_ = os.Remove(statePath())
+	return removed, nil
+}
+
+// containerState reports whether a container exists and whether it is running.
+func containerState(name string) (exists, running bool) {
+	out, err := docker("inspect", "-f", "{{.State.Running}}", name)
+	if err != nil {
+		return false, false
+	}
+	return true, strings.TrimSpace(out) == "true"
 }
 
 // --- state & paths ---

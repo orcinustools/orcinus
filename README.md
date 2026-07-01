@@ -18,7 +18,7 @@ Compose compatible and under our control.
 | M0 | Scaffold, multicall CLI, `--help` | ✅ done |
 | M1 | `orcinus deploy` compose→k8s conversion (+ `x-orcinus-*`) | ✅ done |
 | M2 | Cluster ops: `deploy` (apply/prune/wait), `rm`, `ls`, `ps`, `logs` | ✅ done |
-| M3 | Cluster runtime: `init` / `join` (writes kubeconfig automatically) | ✅ done |
+| M3 | Cluster runtime: `init` / `join` / `status` / `down` (auto kubeconfig) | ✅ done |
 
 Verified compose→k8s mappings: controllers (Deployment/StatefulSet/DaemonSet),
 Service (ClusterIP/NodePort), Ingress, PVC, Secret extraction, replicas,
@@ -40,6 +40,8 @@ make e2e-live         # boots a real single-node cluster and deploys to it
 # Start a cluster (writes ~/.orcinus/kubeconfig; needs a container runtime)
 bin/orcinus init
 bin/orcinus join                     # add a local node (reads saved state)
+bin/orcinus status                   # cluster + node status
+bin/orcinus down                     # stop + remove the cluster
 
 # Deploy — with no -f, orcinus.yml (or a compose file) is auto-detected
 bin/orcinus deploy --wait

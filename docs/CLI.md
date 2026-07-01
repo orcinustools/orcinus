@@ -37,8 +37,10 @@ Feel mapping:
 
 ```
 orcinus
-├── init                  # make this node a control plane (≈ swarm init)
-├── join                  # join a cluster as a node (≈ swarm join)
+├── init                  # start a single-node cluster (≈ swarm init)
+├── join                  # join a node to the cluster (≈ swarm join)
+├── status                # cluster + node status
+├── down                  # stop and remove the cluster
 ├── deploy                # ⭐ auto-detect compose|manifest → deploy
 ├── rm                    # remove orcinus-managed projects/resources
 ├── ls                    # list running services/projects
@@ -47,6 +49,10 @@ orcinus
 ├── version
 └── completion
 ```
+
+Cluster lifecycle: `init` starts a cluster (writes `~/.orcinus/kubeconfig` and is
+idempotent — re-running reuses a running cluster), `status` shows it, `down`
+removes it (server + all joined nodes) and clears local state.
 
 ---
 
@@ -115,6 +121,12 @@ deterministic CI. Without it, auto-detection applies.
 
 > `--output` replaces a separate `convert` command — for manifests without
 > deploying, use `deploy --dry-run -o`.
+
+### 3.3b `orcinus status` / `orcinus down`
+```bash
+orcinus status              # cluster name, state, kubeconfig, nodes
+orcinus down                # stop + remove the cluster, clear ~/.orcinus state
+```
 
 ### 3.4 `orcinus rm` — tear down
 ```bash

@@ -44,13 +44,20 @@ func TestLiveCluster(t *testing.T) {
 		_, _ = runcOut(append(docker, "rm", "-f", name+"-agent")...)
 	})
 
+	kubeconfigPath := filepath.Join(home, ".orcinus", "kubeconfig")
+
 	// --- 1. orcinus init ---
 	t.Log("orcinus init")
 	if out, err := orcinus("init", "--name", name, "--port", "16444"); err != nil {
 		t.Fatalf("orcinus init failed: %v\n%s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".orcinus", "kubeconfig")); err != nil {
+	if _, err := os.Stat(kubeconfigPath); err != nil {
 		t.Fatalf("init did not write ~/.orcinus/kubeconfig: %v", err)
+	}
+
+	// --- 1b. init is idempotent: a second init reuses the running cluster ---
+	if out, err := orcinus("init", "--name", name, "--port", "16444"); err != nil {
+		t.Fatalf("second (idempotent) init failed: %v\n%s", err, out)
 	}
 
 	// --- 2. orcinus join (second node, reads saved state) ---
@@ -65,6 +72,13 @@ func TestLiveCluster(t *testing.T) {
 		out, err := kubectl("get", "nodes", "--no-headers")
 		return err == nil && readyNodeCount(out) >= 2
 	})
+
+	// --- 2b. orcinus status shows a running cluster with both nodes ---
+	if out, err := orcinus("status"); err != nil {
+		t.Fatalf("orcinus status failed: %v\n%s", err, out)
+	} else if !strings.Contains(out, "running") || readyNodeCount(out) < 2 {
+		t.Fatalf("orcinus status did not report 2 running nodes:\n%s", out)
+	}
 
 	// --- 3. orcinus deploy with NO --kubeconfig (uses ~/.orcinus/kubeconfig) ---
 	t.Log("orcinus deploy (auto kubeconfig)")
@@ -86,7 +100,19 @@ func TestLiveCluster(t *testing.T) {
 		t.Fatalf("orcinus rm failed: %v\n%s", err, out)
 	}
 
-	t.Log("live cluster e2e passed: init → join(2 nodes) → deploy → ls → ps → rm (no --kubeconfig)")
+	// --- 6. orcinus down tears the whole cluster down ---
+	t.Log("orcinus down")
+	if out, err := orcinus("down"); err != nil {
+		t.Fatalf("orcinus down failed: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(kubeconfigPath); !os.IsNotExist(err) {
+		t.Errorf("down should have removed the kubeconfig, stat err = %v", err)
+	}
+	if out, _ := runcOut(append(docker, "ps", "-aq", "--filter", "label=orcinus.cluster="+name)...); strings.TrimSpace(out) != "" {
+		t.Errorf("down should have removed all cluster containers, still present:\n%s", out)
+	}
+
+	t.Log("live cluster e2e passed: init(idempotent) → join(2 nodes) → status → deploy → ls → ps → rm → down")
 }
 
 // readyNodeCount counts nodes whose STATUS column is exactly "Ready".
