@@ -26,19 +26,48 @@ type Options struct {
 	Kubeconfig string
 	Email      string // cert-manager: ACME account email
 	Staging    bool   // cert-manager: use Let's Encrypt staging
+
+	// storage plugin options
+	Provider  string // e.g. local-path | longhorn | nfs | minio
+	Size      string // volume/PVC size (e.g. 10Gi)
+	Replicas  int    // minio: >1 = distributed (HA) mode
+	NFSServer string // nfs provider
+	NFSPath   string // nfs provider
 }
 
 // WaitTarget is a Deployment to wait for before post-install steps.
 type WaitTarget struct{ Namespace, Name string }
 
+// built is the concrete result of resolving a plugin for given options.
+type built struct {
+	Manifests []string         // URLs applied in order
+	Objects   []runtime.Object // inline objects applied after manifests
+	WaitFor   []WaitTarget
+	// PostObjects are applied last, with a fresh API discovery, so they may
+	// reference CRDs installed by Manifests (e.g. a CephCluster).
+	PostObjects []runtime.Object
+}
+
 // Spec describes an installable plugin.
 type Spec struct {
 	Name        string
 	Description string
-	Manifests   []string // URLs applied in order
+	Providers   []string // for `plugin info`; storage/ingress variants
+	Manifests   []string // static URLs (when Build is nil)
 	WaitFor     []WaitTarget
 	PostInstall func(o Options) ([]runtime.Object, error)
-	Notes       string
+	// Build resolves manifests/objects dynamically from options (overrides
+	// Manifests). Used by plugins with providers, e.g. storage.
+	Build func(o Options) (built, error)
+	Notes string
+}
+
+// resolve returns the concrete install plan for a spec + options.
+func resolve(spec Spec, o Options) (built, error) {
+	if spec.Build != nil {
+		return spec.Build(o)
+	}
+	return built{Manifests: spec.Manifests, WaitFor: spec.WaitFor}, nil
 }
 
 // Registry is the built-in plugin catalog.
@@ -73,9 +102,10 @@ var Registry = map[string]Spec{
 	},
 	"storage": {
 		Name:        "storage",
-		Description: "Longhorn distributed block storage (StorageClass: longhorn)",
-		Manifests:   []string{"https://raw.githubusercontent.com/longhorn/longhorn/v1.7.2/deploy/longhorn.yaml"},
-		Notes:       "Longhorn needs open-iscsi on every node; not suitable for all hosts.",
+		Description: "Storage backends (block, file/NFS, object)",
+		Providers:   []string{"local-path", "longhorn", "nfs", "minio", "rook-ceph"},
+		Build:       buildStorage,
+		Notes:       "Pick with --provider. nfs needs --nfs-server/--nfs-path; minio is S3 object storage; rook-ceph is full distributed storage.",
 	},
 }
 
@@ -100,6 +130,11 @@ func Install(ctx context.Context, name string, o Options) error {
 		return fmt.Errorf("cert-manager needs --email <you@example.com> for the ACME account")
 	}
 
+	plan, err := resolve(spec, o)
+	if err != nil {
+		return err
+	}
+
 	cfg, err := deploy.LoadRESTConfig(o.Kubeconfig)
 	if err != nil {
 		return err
@@ -109,7 +144,7 @@ func Install(ctx context.Context, name string, o Options) error {
 		return err
 	}
 
-	for _, url := range spec.Manifests {
+	for _, url := range plan.Manifests {
 		data, err := fetch(url)
 		if err != nil {
 			return err
@@ -122,25 +157,35 @@ func Install(ctx context.Context, name string, o Options) error {
 			return fmt.Errorf("apply %s: %w", spec.Name, err)
 		}
 	}
+	if len(plan.Objects) > 0 {
+		if _, err := applier.Apply(ctx, plan.Objects, deploy.ApplyOptions{}); err != nil {
+			return fmt.Errorf("apply %s: %w", spec.Name, err)
+		}
+	}
 
-	for _, w := range spec.WaitFor {
+	for _, w := range plan.WaitFor {
 		if err := applier.WaitForDeployment(ctx, w.Namespace, w.Name, 5*time.Minute); err != nil {
 			return err
 		}
 	}
 
+	// Post-install objects need a fresh discovery RESTMapper so CRDs installed
+	// above (cert-manager's ClusterIssuer, Rook's CephCluster) are visible.
+	var post []runtime.Object
 	if spec.PostInstall != nil {
 		objs, err := spec.PostInstall(o)
 		if err != nil {
 			return err
 		}
-		// Fresh applier: its discovery RESTMapper must see CRDs installed above
-		// (e.g. cert-manager's ClusterIssuer). The original mapper is stale.
+		post = append(post, objs...)
+	}
+	post = append(post, plan.PostObjects...)
+	if len(post) > 0 {
 		pa, err := deploy.NewApplier(cfg)
 		if err != nil {
 			return err
 		}
-		if _, err := pa.Apply(ctx, objs, deploy.ApplyOptions{}); err != nil {
+		if _, err := pa.Apply(ctx, post, deploy.ApplyOptions{}); err != nil {
 			return fmt.Errorf("post-install %s: %w", spec.Name, err)
 		}
 	}
@@ -161,6 +206,10 @@ func Remove(ctx context.Context, name string, o Options) error {
 	if !ok {
 		return fmt.Errorf("unknown plugin %q", name)
 	}
+	plan, err := resolve(spec, o)
+	if err != nil {
+		return err
+	}
 	cfg, err := deploy.LoadRESTConfig(o.Kubeconfig)
 	if err != nil {
 		return err
@@ -175,7 +224,9 @@ func Remove(ctx context.Context, name string, o Options) error {
 			_ = applier.DeleteObjects(ctx, objs)
 		}
 	}
-	for _, url := range spec.Manifests {
+	_ = applier.DeleteObjects(ctx, plan.PostObjects)
+	_ = applier.DeleteObjects(ctx, plan.Objects)
+	for _, url := range plan.Manifests {
 		data, err := fetch(url)
 		if err != nil {
 			return err

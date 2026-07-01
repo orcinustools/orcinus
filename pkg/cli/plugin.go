@@ -32,6 +32,9 @@ func newPluginInfoCmd() *cobra.Command {
 			fmt.Fprintf(out, "name:        %s\n", s.Name)
 			fmt.Fprintf(out, "description: %s\n", s.Description)
 			fmt.Fprintf(out, "installed:   %t\n", plugin.Installed(s.Name))
+			if len(s.Providers) > 0 {
+				fmt.Fprintf(out, "providers:   %v\n", s.Providers)
+			}
 			for i, m := range s.Manifests {
 				if i == 0 {
 					fmt.Fprintf(out, "manifests:   %s\n", m)
@@ -61,7 +64,7 @@ func newPluginRemoveCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&o.Kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
+	pluginFlags(cmd, &o)
 	return cmd
 }
 
@@ -98,9 +101,19 @@ func newPluginInstallCmd() *cobra.Command {
 			return nil
 		},
 	}
+	pluginFlags(cmd, &o)
+	return cmd
+}
+
+// pluginFlags registers the shared install/remove option flags.
+func pluginFlags(cmd *cobra.Command, o *plugin.Options) {
 	f := cmd.Flags()
 	f.StringVar(&o.Kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	f.StringVar(&o.Email, "email", "", "ACME account email (cert-manager)")
 	f.BoolVar(&o.Staging, "staging", false, "use Let's Encrypt staging (cert-manager)")
-	return cmd
+	f.StringVar(&o.Provider, "provider", "", "provider variant (storage: local-path|longhorn|nfs|minio)")
+	f.StringVar(&o.Size, "size", "", "volume size (e.g. 10Gi) — storage: minio")
+	f.IntVar(&o.Replicas, "replicas", 0, "replica count — storage: minio (>=2 = distributed/HA)")
+	f.StringVar(&o.NFSServer, "nfs-server", "", "NFS server address (storage: nfs)")
+	f.StringVar(&o.NFSPath, "nfs-path", "", "NFS export path (storage: nfs)")
 }

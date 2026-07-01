@@ -7,7 +7,8 @@ to it, no hand-written Kubernetes manifests required.
 - **Architecture & design:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
 - **CLI usage guide:** [`docs/USAGE.md`](./docs/USAGE.md)
 - **Cluster setup (single / multi-node / HA):** [`docs/CLUSTER.md`](./docs/CLUSTER.md)
-- **Plugins & cluster add-ons (design):** [`docs/PLUGINS.md`](./docs/PLUGINS.md)
+- **Plugins & cluster add-ons:** [`docs/PLUGINS.md`](./docs/PLUGINS.md)
+- **High-availability storage:** [`docs/HA-STORAGE.md`](./docs/HA-STORAGE.md)
 
 Orcinus embeds a lightweight Kubernetes runtime and **forks kompose**
 (`third_party/kompose`) so the compose→Kubernetes conversion is fully Docker

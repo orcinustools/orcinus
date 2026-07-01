@@ -68,9 +68,38 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `ingress-nginx` | — | NGINX ingress controller (class `nginx`) |
 | `metrics-server` | — | metrics-server (`kubectl top`, HPA) |
 | `monitoring` | — | Prometheus Operator (CRDs + operator) |
-| `storage` | — | Longhorn block storage (needs open-iscsi on nodes) |
+| `storage` | `--provider`, `--size`, `--nfs-server`, `--nfs-path` | Storage backends — see below |
 
 `cert-manager` waits for its webhook to be ready before creating the issuer.
+
+### Storage providers
+
+`storage` is a family selected with `--provider`:
+
+| Provider | Kind | Command |
+|---|---|---|
+| `local-path` | block/file (default) | already in the cluster — nothing to install |
+| `longhorn` | distributed block (HA) | `orcinus plugin install storage --provider longhorn [--replicas 3]` |
+| `nfs` | shared file (RWX) | `orcinus plugin install storage --provider nfs --nfs-server 10.0.0.9 --nfs-path /export` |
+| `minio` | object (S3-compatible) | `orcinus plugin install storage --provider minio [--replicas 4] [--size 20Gi]` |
+| `rook-ceph` | block+file+object (HA) | `orcinus plugin install storage --provider rook-ceph` |
+
+- **nfs** deploys the nfs-subdir-external-provisioner + a `nfs` StorageClass
+  backed by your existing NFS server (supports `ReadWriteMany`).
+- **minio** deploys MinIO (object storage) exposing the S3 API on `minio:9000`
+  and a console on `:9001` in namespace `orcinus-storage` (default creds
+  `minioadmin` / `minioadmin` — change them). Add `--replicas N` (≥2) for
+  **distributed/HA** mode (StatefulSet, erasure-coded; ≥4 recommended). Pods are
+  auto-spread across nodes (anti-affinity + topology spread).
+- **longhorn** needs `open-iscsi` on every node; replicates volumes across nodes.
+  `--replicas N` adds a `longhorn-ha` StorageClass with that replica count.
+- **rook-ceph** installs the Rook operator + a `CephCluster` (block/file/object);
+  needs multiple nodes with raw disks.
+
+Remove with the same provider, e.g. `orcinus plugin remove storage --provider minio`.
+
+For fault-tolerant setups (replicas across nodes) see
+[`HA-STORAGE.md`](./HA-STORAGE.md).
 
 ### Auto-install on deploy
 
@@ -161,3 +190,4 @@ already works, the registry points at upstream release URLs directly.
 - Pinned plugin versions and richer `remove` (namespace cleanup).
 - More catalog entries: a local registry, a dashboard, a Grafana bundle.
 - Profiles: install a set at once (e.g. `--profile web` = ingress + cert-manager).
+- Configurable Rook `CephCluster` (device filters, failure domains, replica size).

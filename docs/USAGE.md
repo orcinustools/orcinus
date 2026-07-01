@@ -380,7 +380,16 @@ orcinus plugin remove metrics-server
 ```
 
 Catalog: `cert-manager`, `ingress-nginx`, `metrics-server`, `monitoring`,
-`storage`. See [`PLUGINS.md`](./PLUGINS.md).
+`storage` (providers: `local-path`/`longhorn`/`nfs`/`minio`). See
+[`PLUGINS.md`](./PLUGINS.md).
+
+```bash
+orcinus plugin install storage --provider minio --size 20Gi
+orcinus plugin install storage --provider minio --replicas 4   # distributed/HA
+orcinus plugin install storage --provider nfs --nfs-server 10.0.0.9 --nfs-path /export
+```
+
+For fault-tolerant storage across nodes, see [`HA-STORAGE.md`](./HA-STORAGE.md).
 
 ### 5.10 `orcinus version`
 
