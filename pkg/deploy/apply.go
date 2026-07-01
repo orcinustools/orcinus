@@ -70,7 +70,7 @@ func LoadRESTConfig(kubeconfig string) (*rest.Config, error) {
 		}
 	}
 	if kubeconfig == "" {
-		return nil, fmt.Errorf("no kubeconfig found (run `orcinus init`, pass --kubeconfig, or set KUBECONFIG)")
+		return nil, fmt.Errorf("no kubeconfig found (run `orcinus cluster init`, pass --kubeconfig, or set KUBECONFIG)")
 	}
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }

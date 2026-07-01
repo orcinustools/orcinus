@@ -48,7 +48,7 @@ func TestLiveCluster(t *testing.T) {
 
 	// --- 1. orcinus init ---
 	t.Log("orcinus init")
-	if out, err := orcinus("init", "--name", name, "--port", "16444"); err != nil {
+	if out, err := orcinus("cluster", "init", "--name", name, "--port", "16444"); err != nil {
 		t.Fatalf("orcinus init failed: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(kubeconfigPath); err != nil {
@@ -56,13 +56,13 @@ func TestLiveCluster(t *testing.T) {
 	}
 
 	// --- 1b. init is idempotent: a second init reuses the running cluster ---
-	if out, err := orcinus("init", "--name", name, "--port", "16444"); err != nil {
+	if out, err := orcinus("cluster", "init", "--name", name, "--port", "16444"); err != nil {
 		t.Fatalf("second (idempotent) init failed: %v\n%s", err, out)
 	}
 
 	// --- 2. orcinus join (second node, reads saved state) ---
 	t.Log("orcinus join")
-	if out, err := orcinus("join", "--name", name+"-agent"); err != nil {
+	if out, err := orcinus("cluster", "join", "--name", name+"-agent"); err != nil {
 		t.Fatalf("orcinus join failed: %v\n%s", err, out)
 	}
 	kubectl := func(args ...string) (string, error) {
@@ -74,7 +74,7 @@ func TestLiveCluster(t *testing.T) {
 	})
 
 	// --- 2b. orcinus status shows a running cluster with both nodes ---
-	if out, err := orcinus("status"); err != nil {
+	if out, err := orcinus("cluster", "status"); err != nil {
 		t.Fatalf("orcinus status failed: %v\n%s", err, out)
 	} else if !strings.Contains(out, "running") || readyNodeCount(out) < 2 {
 		t.Fatalf("orcinus status did not report 2 running nodes:\n%s", out)
@@ -102,7 +102,7 @@ func TestLiveCluster(t *testing.T) {
 
 	// --- 6. orcinus down tears the whole cluster down ---
 	t.Log("orcinus down")
-	if out, err := orcinus("down"); err != nil {
+	if out, err := orcinus("cluster", "down"); err != nil {
 		t.Fatalf("orcinus down failed: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(kubeconfigPath); !os.IsNotExist(err) {

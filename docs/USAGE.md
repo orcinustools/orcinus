@@ -20,10 +20,10 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [3.5 Default file discovery](#35-default-file-discovery)
 - [4. Quick Start](#4-quick-start)
 - [5. Command Reference](#5-command-reference)
-  - [5.1 `init`](#51-orcinus-init)
-  - [5.2 `join`](#52-orcinus-join)
-  - [5.3 `status`](#53-orcinus-status)
-  - [5.4 `down`](#54-orcinus-down)
+  - [5.1 `cluster init`](#51-orcinus-cluster-init)
+  - [5.2 `cluster join`](#52-orcinus-cluster-join)
+  - [5.3 `cluster status`](#53-orcinus-cluster-status)
+  - [5.4 `cluster down`](#54-orcinus-cluster-down)
   - [5.5 `deploy`](#55-orcinus-deploy)
   - [5.6 `rm`](#56-orcinus-rm)
   - [5.7 `ls`](#57-orcinus-ls)
@@ -46,10 +46,10 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 
 | You want to… | Command |
 |---|---|
-| Start a cluster | `orcinus init` |
-| Add a node | `orcinus join` |
-| Inspect the cluster | `orcinus status` |
-| Tear the cluster down | `orcinus down` |
+| Start a cluster | `orcinus cluster init` |
+| Add a node | `orcinus cluster join` |
+| Inspect the cluster | `orcinus cluster status` |
+| Tear the cluster down | `orcinus cluster down` |
 | Deploy an app | `orcinus deploy` |
 | Remove an app | `orcinus rm <project>` |
 | List apps | `orcinus ls` |
@@ -101,10 +101,10 @@ Workload commands resolve the target cluster in this order:
 
 1. `--kubeconfig <path>` flag
 2. `$KUBECONFIG`
-3. `~/.orcinus/kubeconfig` (written by `orcinus init`)
+3. `~/.orcinus/kubeconfig` (written by `orcinus cluster init`)
 4. `~/.kube/config`
 
-So after `orcinus init`, the other commands work with no extra configuration.
+So after `orcinus cluster init`, the other commands work with no extra configuration.
 
 ### 3.4 Input auto-detection
 
@@ -134,7 +134,7 @@ So an `orcinus.yml` in your project is picked up automatically.
 
 ```bash
 # 1. Start a single-node cluster (writes ~/.orcinus/kubeconfig)
-orcinus init
+orcinus cluster init
 
 # 2. Deploy — no -f needed if orcinus.yml / a compose file is present
 orcinus deploy --wait
@@ -146,21 +146,21 @@ orcinus logs web -f
 
 # 4. Tear down the app, then the cluster
 orcinus rm myapp
-orcinus down
+orcinus cluster down
 ```
 
 ---
 
 ## 5. Command Reference
 
-### 5.1 `orcinus init`
+### 5.1 `orcinus cluster init`
 
 Start a single-node cluster on this machine. Writes `~/.orcinus/kubeconfig` and
 records cluster state. **Idempotent**: re-running against a running cluster reuses
-it; a stopped cluster of the same name is refused (run `down` first).
+it; a stopped cluster of the same name is refused (run `orcinus cluster down` first).
 
 ```
-orcinus init [flags]
+orcinus cluster init [flags]
 ```
 
 | Flag | Default | Description |
@@ -174,19 +174,19 @@ orcinus init [flags]
 | `--kubeconfig <path>` | `~/.orcinus/kubeconfig` | Where to write the kubeconfig |
 
 ```bash
-orcinus init
-orcinus init --name prod --port 6550
+orcinus cluster init
+orcinus cluster init --name prod --port 6550
 ```
 
-On success it prints the kubeconfig path and a ready-to-paste `orcinus join …`.
+On success it prints the kubeconfig path and a ready-to-paste `orcinus cluster join …`.
 
-### 5.2 `orcinus join`
+### 5.2 `orcinus cluster join`
 
 Join a node to an existing cluster. With no flags, reads the saved cluster state
-(so on the init host, `orcinus join` just works).
+(so on the init host, `orcinus cluster join` just works).
 
 ```
-orcinus join [flags]
+orcinus cluster join [flags]
 ```
 
 | Flag | Default | Description |
@@ -197,33 +197,33 @@ orcinus join [flags]
 | `--image <str>` | from saved state | Cluster runtime image |
 
 ```bash
-orcinus join                                        # on the init host
-orcinus join --server https://10.0.0.5:6443 --token <token>
+orcinus cluster join                                        # on the init host
+orcinus cluster join --server https://10.0.0.5:6443 --token <token>
 ```
 
-### 5.3 `orcinus status`
+### 5.3 `orcinus cluster status`
 
 Show cluster status: name, running state, kubeconfig path, and node list.
 
 ```
-orcinus status [--name <str>]
+orcinus cluster status [--name <str>]
 ```
 
 ```bash
-orcinus status
+orcinus cluster status
 ```
 
-### 5.4 `orcinus down`
+### 5.4 `orcinus cluster down`
 
 Stop and remove the cluster — the server **and all joined nodes** — then clear the
 local kubeconfig and state.
 
 ```
-orcinus down [--name <str>]
+orcinus cluster down [--name <str>]
 ```
 
 ```bash
-orcinus down
+orcinus cluster down
 ```
 
 ### 5.5 `orcinus deploy`
@@ -359,13 +359,13 @@ source <(orcinus completion zsh)
 
 ## 6. Datastore
 
-`orcinus init` stores cluster state in a datastore. The default is **SQLite**;
+`orcinus cluster init` stores cluster state in a datastore. The default is **SQLite**;
 other backends are opt-in.
 
 | Mode | HA? | How |
 |---|---|---|
-| **SQLite** (default) | ❌ | `orcinus init` |
-| **etcd embedded** | ✅ (odd node count) | `orcinus init --cluster-init` |
+| **SQLite** (default) | ❌ | `orcinus cluster init` |
+| **etcd embedded** | ✅ (odd node count) | `orcinus cluster init --cluster-init` |
 | **etcd external** | ✅ | `--datastore-endpoint https://etcd:2379` |
 | **PostgreSQL** | ✅ | `--datastore-endpoint "postgres://…"` |
 | **MySQL / MariaDB** | ✅ | `--datastore-endpoint "mysql://…"` |
@@ -474,8 +474,8 @@ volumes:
 
 | Symptom | Cause / fix |
 |---|---|
-| `no kubeconfig found` | Run `orcinus init`, pass `--kubeconfig`, or set `$KUBECONFIG`. |
-| `a cluster named "…" already exists but is not running` | Run `orcinus down` first, then `init`. |
+| `no kubeconfig found` | Run `orcinus cluster init`, pass `--kubeconfig`, or set `$KUBECONFIG`. |
+| `a cluster named "…" already exists but is not running` | Run `orcinus cluster down` first, then `init`. |
 | `no input file found` | No `-f` and no default file present — pass `-f` or add `orcinus.yml`. |
 | `document is neither a compose file … nor a k8s manifest` | The YAML lacks both `services:` and `apiVersion`+`kind`; fix it or force with `--as`. |
 | `init`/`join` fail to reach the runtime | Ensure a container runtime is available; set `ORCINUS_DOCKER` (e.g. `sudo docker`). |

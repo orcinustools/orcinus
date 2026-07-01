@@ -27,7 +27,7 @@ Target user experience:
 
 ```bash
 # Start a single-node cluster (control plane)
-orcinus init
+orcinus cluster init
 
 # Deploy straight from compose or a manifest (auto-detected)
 orcinus deploy -f docker-compose.yml                    # convert + apply in one shot
@@ -93,8 +93,8 @@ then decorates the resulting objects with ownership labels.
                          ┌──────────────────────────────────────┐
                          │              orcinus (1 binary)        │
   argv dispatch ───────► │  cmd/orcinus  (multicall router)       │
-                         │   ├─ init     → pkg/cluster (runtime)  │
-                         │   ├─ join     → pkg/cluster (runtime)  │
+                         │   ├─ cluster  → pkg/cluster (init/join)│
+                         │   │             (status/down)          │
                          │   ├─ deploy   ┐                        │
                          │   │           ├→ pkg/compose (fork)    │
                          │   └─ rm       ┘   + pkg/deploy (apply) │
@@ -190,8 +190,8 @@ manifests with ownership labels and `x-orcinus-*` support. Unit + offline e2e.
 prune + `--wait`; `orcinus deploy` and `orcinus rm` work against a kubeconfig.
 Covered by a live single-node e2e that boots a real cluster in a container.
 
-**M3 — Cluster runtime. ✅** `orcinus init` provisions a single-node cluster and
-writes `~/.orcinus/kubeconfig`; `orcinus join` adds nodes (reads saved cluster
+**M3 — Cluster runtime. ✅** `orcinus cluster init` provisions a single-node cluster and
+writes `~/.orcinus/kubeconfig`; `orcinus cluster join` adds nodes (reads saved cluster
 state). Implemented as a runtime-manager provider (container-backed; docker
 command from `$ORCINUS_DOCKER`). Covered by a live cluster e2e (init → join(2
 nodes) → deploy → ls → ps → rm). A fully in-binary embed remains a future option.

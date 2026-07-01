@@ -72,7 +72,7 @@ func Init(o InitOptions) (*InitResult, error) {
 	// stopped one so state is never silently inconsistent.
 	exists, running := containerState(o.Name)
 	if exists && !running {
-		return nil, fmt.Errorf("a cluster named %q already exists but is not running; run `orcinus down` first", o.Name)
+		return nil, fmt.Errorf("a cluster named %q already exists but is not running; run `orcinus cluster down` first", o.Name)
 	}
 	if !exists {
 		args := []string{
@@ -193,7 +193,7 @@ type StatusResult struct {
 func Status(name string) (*StatusResult, error) {
 	st, err := LoadState()
 	if err != nil {
-		return nil, fmt.Errorf("no cluster state found; run `orcinus init` first")
+		return nil, fmt.Errorf("no cluster state found; run `orcinus cluster init` first")
 	}
 	if name == "" {
 		name = st.Name

@@ -53,10 +53,10 @@ make release-check    # validate the release config
 
 ```bash
 # Start a cluster (writes ~/.orcinus/kubeconfig; needs a container runtime)
-bin/orcinus init
-bin/orcinus join                     # add a local node (reads saved state)
-bin/orcinus status                   # cluster + node status
-bin/orcinus down                     # stop + remove the cluster
+bin/orcinus cluster init
+bin/orcinus cluster join                     # add a local node (reads saved state)
+bin/orcinus cluster status                   # cluster + node status
+bin/orcinus cluster down                     # stop + remove the cluster
 
 # Deploy — with no -f, orcinus.yml (or a compose file) is auto-detected
 bin/orcinus deploy --wait

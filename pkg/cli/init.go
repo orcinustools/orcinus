@@ -24,7 +24,7 @@ func newInitCmd() *cobra.Command {
 			fmt.Fprintln(out, "Deploy your app:")
 			fmt.Fprintln(out, "  orcinus deploy -f docker-compose.yml")
 			fmt.Fprintln(out, "\nAdd a node (run on another host, or here for a local agent):")
-			fmt.Fprintf(out, "  orcinus join --server %s --token %s\n", res.ServerURL, res.Token)
+			fmt.Fprintf(out, "  orcinus cluster join --server %s --token %s\n", res.ServerURL, res.Token)
 			return nil
 		},
 	}
