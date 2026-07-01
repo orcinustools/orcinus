@@ -3,9 +3,11 @@ package cli
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -42,7 +44,7 @@ func newDeployCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringArrayVarP(&o.files, "file", "f", nil, "input file (repeatable; '-' = stdin). Default: auto-detect orcinus.yml/compose file in the current directory")
+	f.StringArrayVarP(&o.files, "file", "f", nil, "input file, URL, or '-' for stdin (repeatable). Default: auto-detect orcinus.yml/compose file in the current directory")
 	f.StringVarP(&o.namespace, "namespace", "n", "", "target namespace")
 	f.StringVar(&o.project, "project", "", "ownership label (default: current directory name)")
 	f.BoolVar(&o.dryRun, "dry-run", false, "render instead of applying")
@@ -201,14 +203,32 @@ func discoverDefaultFile() (string, error) {
 }
 
 func readSource(src string, stdin io.Reader) ([]byte, error) {
-	if src == "-" {
+	switch {
+	case src == "-":
 		return io.ReadAll(stdin)
+	case strings.HasPrefix(src, "http://"), strings.HasPrefix(src, "https://"):
+		return readURL(src)
+	default:
+		b, err := os.ReadFile(src)
+		if err != nil {
+			return nil, fmt.Errorf("read %q: %w", src, err)
+		}
+		return b, nil
 	}
-	b, err := os.ReadFile(src)
+}
+
+// readURL fetches a manifest/compose file over HTTP(S), like `kubectl apply -f <url>`.
+func readURL(url string) ([]byte, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("read %q: %w", src, err)
+		return nil, fmt.Errorf("fetch %q: %w", url, err)
 	}
-	return b, nil
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch %q: HTTP %s", url, resp.Status)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 // decodeManifest turns a raw k8s YAML document into an unstructured object.

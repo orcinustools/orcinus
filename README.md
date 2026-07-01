@@ -62,6 +62,7 @@ bin/orcinus cluster down                     # stop + remove the cluster
 # Deploy — with no -f, orcinus.yml (or a compose file) is auto-detected
 bin/orcinus deploy --wait
 bin/orcinus deploy -f examples/orcinus.yml
+bin/orcinus deploy -f https://example.com/app.yaml   # from a URL, like kubectl
 
 # Convert only (no cluster needed)
 bin/orcinus deploy -f examples/docker-compose.yml --dry-run

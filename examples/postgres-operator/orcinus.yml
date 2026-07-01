@@ -1,11 +1,9 @@
 # A highly-available PostgreSQL cluster managed by an operator (CloudNativePG).
 #
-# Step 1 — install the operator once (it ships as a single manifest; orcinus can
-# apply it directly since it is plain Kubernetes YAML):
+# Step 1 — install the operator once. It ships as a single manifest, and orcinus
+# can apply it straight from a URL (like `kubectl apply -f <url>`):
 #
-#   orcinus deploy -f https_or_local/cnpg-1.24.0.yaml
-#   # e.g. download from:
-#   #   https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.24/releases/cnpg-1.24.0.yaml
+#   orcinus deploy -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.24/releases/cnpg-1.24.0.yaml
 #
 # Step 2 — create the database cluster (this file):
 #

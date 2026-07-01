@@ -5,6 +5,8 @@
 package e2e
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -143,6 +145,26 @@ func TestDeployDetectsOrcinusYml(t *testing.T) {
 	}
 	if !contains(string(out), "kind: Deployment") {
 		t.Errorf("expected a Deployment from orcinus.yml, got:\n%s", out)
+	}
+}
+
+// TestDeployFromURL verifies `orcinus deploy -f <url>` fetches over HTTP,
+// like `kubectl apply -f <url>`.
+func TestDeployFromURL(t *testing.T) {
+	const doc = "services:\n  web:\n    image: nginx:1.27\n    ports: [\"80:80\"]\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(doc))
+	}))
+	defer srv.Close()
+
+	cmd := exec.Command(orcinusBin, "deploy", "-f", srv.URL, "--dry-run", "--project", "url")
+	cmd.Dir = repoRoot()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("deploy from URL failed: %v\n%s", err, out)
+	}
+	if !contains(string(out), "kind: Deployment") {
+		t.Errorf("expected a Deployment from the fetched URL, got:\n%s", out)
 	}
 }
 

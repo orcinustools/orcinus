@@ -2,8 +2,8 @@
 # automatic Let's Encrypt TLS certificate via cert-manager.
 #
 # Prerequisites:
-#   - cert-manager installed (single manifest — orcinus can apply it):
-#       orcinus deploy -f local/cert-manager.yaml
+#   - cert-manager installed (orcinus can apply it straight from the URL):
+#       orcinus deploy -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 #   - a public DNS A/AAAA record for the host below pointing at your cluster
 #   - port 80/443 reachable from the internet (HTTP-01 challenge)
 #

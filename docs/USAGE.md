@@ -254,7 +254,7 @@ orcinus deploy [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `-f, --file <path>` | auto-detect | Input file; repeatable; `-` = stdin (see [§3.5](#35-default-file-discovery)) |
+| `-f, --file <path\|url>` | auto-detect | Input file, `http(s)://` URL, or `-` (stdin); repeatable (see [§3.5](#35-default-file-discovery)) |
 | `-n, --namespace <ns>` | `default` | Target namespace |
 | `--project <name>` | directory name | Ownership label (for `ls`/`ps`/`rm`/prune) |
 | `--as <compose\|manifest>` | auto | Force the input mode |
@@ -269,6 +269,7 @@ orcinus deploy [flags]
 ```bash
 orcinus deploy                                   # auto-detect a default file
 orcinus deploy -f docker-compose.yml --wait
+orcinus deploy -f https://example.com/app.yaml   # fetch over HTTP(S), like kubectl
 orcinus deploy -f app.yml -f ingress.yaml        # mix compose + manifest
 cat manifest.yaml | orcinus deploy -f -          # from stdin
 orcinus deploy -f docker-compose.yml --dry-run   # print manifests, don't apply
