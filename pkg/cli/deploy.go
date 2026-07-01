@@ -14,7 +14,9 @@ import (
 	"github.com/orcinustools/orcinus/pkg/compose"
 	"github.com/orcinustools/orcinus/pkg/deploy"
 	"github.com/orcinustools/orcinus/pkg/detect"
+	"github.com/orcinustools/orcinus/pkg/plugin"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/yaml"
@@ -32,6 +34,7 @@ type deployOpts struct {
 	kubeconfig string
 	prune      bool
 	wait       bool
+	acmeEmail  string
 }
 
 func newDeployCmd() *cobra.Command {
@@ -55,6 +58,7 @@ func newDeployCmd() *cobra.Command {
 	f.StringVar(&o.kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	f.BoolVar(&o.prune, "prune", true, "remove owned resources no longer present in the input")
 	f.BoolVar(&o.wait, "wait", false, "wait until workloads are ready")
+	f.StringVar(&o.acmeEmail, "acme-email", "", "email for auto-installing cert-manager when x-orcinus-tls is used")
 	return cmd
 }
 
@@ -162,6 +166,18 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		return err
 	}
 
+	// If a service asked for TLS (x-orcinus-tls) and cert-manager isn't present,
+	// auto-install it when an ACME email is available; otherwise guide the user.
+	if needsCertManager(objects) && !plugin.Installed("cert-manager") {
+		if o.acmeEmail == "" {
+			return fmt.Errorf("x-orcinus-tls needs cert-manager; run `orcinus plugin install cert-manager --email you@example.com` or pass --acme-email")
+		}
+		fmt.Fprintln(cmd.ErrOrStderr(), "installing cert-manager (required by x-orcinus-tls)...")
+		if err := plugin.Install(cmd.Context(), "cert-manager", plugin.Options{Kubeconfig: o.kubeconfig, Email: o.acmeEmail}); err != nil {
+			return err
+		}
+	}
+
 	// Apply to the cluster via server-side apply (+ prune + optional wait).
 	cfg, err := deploy.LoadRESTConfig(o.kubeconfig)
 	if err != nil {
@@ -229,6 +245,20 @@ func readURL(url string) ([]byte, error) {
 		return nil, fmt.Errorf("fetch %q: HTTP %s", url, resp.Status)
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// needsCertManager reports whether any object requests a cert-manager issuer.
+func needsCertManager(objects []runtime.Object) bool {
+	for _, o := range objects {
+		acc, err := meta.Accessor(o)
+		if err != nil {
+			continue
+		}
+		if _, ok := acc.GetAnnotations()["cert-manager.io/cluster-issuer"]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // decodeManifest turns a raw k8s YAML document into an unstructured object.

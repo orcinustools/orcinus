@@ -3,8 +3,9 @@
 Plugins let you add cluster capabilities — TLS certificates, extra ingress
 controllers, metrics — by **picking options**, not by hand-applying manifests.
 
-> **Status:** `orcinus plugin list|install` and the ingress/TLS `x-orcinus-*`
-> sugar are **implemented**. `remove`/`info` and more catalog entries are planned.
+> **Status:** `orcinus plugin list|info|install|remove`, the ingress/TLS
+> `x-orcinus-*` sugar, and auto-installing cert-manager on `deploy` are all
+> **implemented**. More catalog entries and profiles are planned.
 
 ---
 
@@ -43,7 +44,9 @@ Plugins are for everything beyond these defaults (TLS automation, nginx, metrics
 
 ```
 orcinus plugin list                       # catalog + install status
+orcinus plugin info <name>                # details for one plugin
 orcinus plugin install <name> [options]
+orcinus plugin remove <name>              # delete what it installed
 ```
 
 ```bash
@@ -64,8 +67,23 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `cert-manager` | `--email` (required), `--staging` | cert-manager + a `letsencrypt` `ClusterIssuer` (prod, or staging) |
 | `ingress-nginx` | — | NGINX ingress controller (class `nginx`) |
 | `metrics-server` | — | metrics-server (`kubectl top`, HPA) |
+| `monitoring` | — | Prometheus Operator (CRDs + operator) |
+| `storage` | — | Longhorn block storage (needs open-iscsi on nodes) |
 
 `cert-manager` waits for its webhook to be ready before creating the issuer.
+
+### Auto-install on deploy
+
+If a service uses `x-orcinus-tls` and cert-manager isn't installed yet, pass
+`--acme-email` to `orcinus deploy` and orcinus installs cert-manager for you
+before applying:
+
+```bash
+orcinus deploy --wait --acme-email you@example.com
+```
+
+Without cert-manager and without `--acme-email`, deploy stops with a clear
+message telling you to install the plugin.
 
 ---
 
@@ -140,9 +158,6 @@ already works, the registry points at upstream release URLs directly.
 
 ## Roadmap
 
-- `orcinus plugin remove` / `info`, and pinned plugin versions.
-- More catalog entries: storage drivers (Longhorn), monitoring (Prometheus +
-  Grafana), a local registry, a dashboard.
+- Pinned plugin versions and richer `remove` (namespace cleanup).
+- More catalog entries: a local registry, a dashboard, a Grafana bundle.
 - Profiles: install a set at once (e.g. `--profile web` = ingress + cert-manager).
-- Auto-install a plugin when an `x-orcinus-*` key needs it (e.g. `x-orcinus-tls`
-  pulling in cert-manager).

@@ -264,6 +264,7 @@ orcinus deploy [flags]
 | `-o, --output <dir>` | — | Also write converted manifests to a directory |
 | `--prune` | `true` | Remove owned resources no longer in the input |
 | `--wait` | `false` | Wait until workloads are ready |
+| `--acme-email <email>` | — | Auto-install cert-manager when `x-orcinus-tls` is used |
 | `--replicas <n>` | `1` | Default replicas when a service specifies none |
 | `--pvc-size <size>` | `1Gi` | Default PersistentVolumeClaim size |
 | `--kubeconfig <path>` | auto | Target cluster (see [§3.3](#33-kubeconfig-resolution)) |
@@ -365,15 +366,21 @@ Manage cluster add-ons (see [`PLUGINS.md`](./PLUGINS.md)).
 
 ```
 orcinus plugin list
+orcinus plugin info <name>
 orcinus plugin install <name> [--email ...] [--staging]
+orcinus plugin remove <name>
 ```
 
 ```bash
 orcinus plugin list
+orcinus plugin info cert-manager
 orcinus plugin install cert-manager --email me@example.com
 orcinus plugin install ingress-nginx
-orcinus plugin install metrics-server
+orcinus plugin remove metrics-server
 ```
+
+Catalog: `cert-manager`, `ingress-nginx`, `metrics-server`, `monitoring`,
+`storage`. See [`PLUGINS.md`](./PLUGINS.md).
 
 ### 5.10 `orcinus version`
 

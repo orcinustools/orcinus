@@ -14,7 +14,54 @@ func newPluginCmd() *cobra.Command {
 		Use:   "plugin",
 		Short: "Manage cluster add-ons (ingress, cert-manager, storage, …)",
 	}
-	cmd.AddCommand(newPluginListCmd(), newPluginInstallCmd())
+	cmd.AddCommand(newPluginListCmd(), newPluginInfoCmd(), newPluginInstallCmd(), newPluginRemoveCmd())
+	return cmd
+}
+
+func newPluginInfoCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "info <name>",
+		Short: "Show details about a plugin",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, ok := plugin.Get(args[0])
+			if !ok {
+				return fmt.Errorf("unknown plugin %q (see `orcinus plugin list`)", args[0])
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "name:        %s\n", s.Name)
+			fmt.Fprintf(out, "description: %s\n", s.Description)
+			fmt.Fprintf(out, "installed:   %t\n", plugin.Installed(s.Name))
+			for i, m := range s.Manifests {
+				if i == 0 {
+					fmt.Fprintf(out, "manifests:   %s\n", m)
+				} else {
+					fmt.Fprintf(out, "             %s\n", m)
+				}
+			}
+			if s.Notes != "" {
+				fmt.Fprintf(out, "notes:       %s\n", s.Notes)
+			}
+			return nil
+		},
+	}
+}
+
+func newPluginRemoveCmd() *cobra.Command {
+	var o plugin.Options
+	cmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove an installed plugin from the cluster",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := plugin.Remove(cmd.Context(), args[0], o); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plugin %q removed\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&o.Kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	return cmd
 }
 

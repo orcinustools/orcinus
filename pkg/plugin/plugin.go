@@ -64,6 +64,19 @@ var Registry = map[string]Spec{
 		Description: "Cluster metrics (kubectl top, HPA)",
 		Manifests:   []string{"https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"},
 	},
+	"monitoring": {
+		Name:        "monitoring",
+		Description: "Prometheus Operator (CRDs + operator for Prometheus/Alertmanager)",
+		Manifests:   []string{"https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.76.2/bundle.yaml"},
+		WaitFor:     []WaitTarget{{Namespace: "default", Name: "prometheus-operator"}},
+		Notes:       "Then create Prometheus/Alertmanager custom resources.",
+	},
+	"storage": {
+		Name:        "storage",
+		Description: "Longhorn distributed block storage (StorageClass: longhorn)",
+		Manifests:   []string{"https://raw.githubusercontent.com/longhorn/longhorn/v1.7.2/deploy/longhorn.yaml"},
+		Notes:       "Longhorn needs open-iscsi on every node; not suitable for all hosts.",
+	},
 }
 
 // List returns the catalog sorted by name.
@@ -135,6 +148,49 @@ func Install(ctx context.Context, name string, o Options) error {
 	return recordInstalled(spec.Name)
 }
 
+// Get returns a plugin spec by name.
+func Get(name string) (Spec, bool) {
+	s, ok := Registry[name]
+	return s, ok
+}
+
+// Remove deletes what a plugin installed (post-install objects, then manifests)
+// and unrecords it. Manifests are re-fetched to know what to delete.
+func Remove(ctx context.Context, name string, o Options) error {
+	spec, ok := Registry[name]
+	if !ok {
+		return fmt.Errorf("unknown plugin %q", name)
+	}
+	cfg, err := deploy.LoadRESTConfig(o.Kubeconfig)
+	if err != nil {
+		return err
+	}
+	applier, err := deploy.NewApplier(cfg)
+	if err != nil {
+		return err
+	}
+
+	if spec.PostInstall != nil {
+		if objs, err := spec.PostInstall(o); err == nil {
+			_ = applier.DeleteObjects(ctx, objs)
+		}
+	}
+	for _, url := range spec.Manifests {
+		data, err := fetch(url)
+		if err != nil {
+			return err
+		}
+		objs, err := deploy.DecodeManifests(data)
+		if err != nil {
+			return err
+		}
+		if err := applier.DeleteObjects(ctx, objs); err != nil {
+			return err
+		}
+	}
+	return unrecord(name)
+}
+
 // certManagerIssuer builds a Let's Encrypt ClusterIssuer named "letsencrypt".
 func certManagerIssuer(o Options) ([]runtime.Object, error) {
 	server := "https://acme-v02.api.letsencrypt.org/directory"
@@ -194,6 +250,16 @@ func recordInstalled(name string) error {
 
 // Installed reports whether a plugin is recorded as installed.
 func Installed(name string) bool { return loadState().Installed[name] }
+
+func unrecord(name string) error {
+	s := loadState()
+	delete(s.Installed, name)
+	b, _ := json.MarshalIndent(s, "", "  ")
+	if err := os.MkdirAll(cluster.Dir(), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(statePath(), b, 0o600)
+}
 
 // --- helpers ---
 
