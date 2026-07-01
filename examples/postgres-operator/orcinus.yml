@@ -1,0 +1,42 @@
+# A highly-available PostgreSQL cluster managed by an operator (CloudNativePG).
+#
+# Step 1 — install the operator once (it ships as a single manifest; orcinus can
+# apply it directly since it is plain Kubernetes YAML):
+#
+#   orcinus deploy -f https_or_local/cnpg-1.24.0.yaml
+#   # e.g. download from:
+#   #   https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.24/releases/cnpg-1.24.0.yaml
+#
+# Step 2 — create the database cluster (this file):
+#
+#   orcinus deploy -f orcinus.yml --wait
+#
+# The operator reconciles the `Cluster` CR below into a 3-instance Postgres with
+# automated failover, backups config, and a read/write Service `pg-cluster-rw`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: databases
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-cluster
+  namespace: databases
+spec:
+  instances: 3                      # 1 primary + 2 replicas (HA)
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 10Gi
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+  resources:
+    requests:
+      cpu: "250m"
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi

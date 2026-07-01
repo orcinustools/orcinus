@@ -1,0 +1,46 @@
+# Fullstack WordPress + MariaDB.
+#
+#   orcinus deploy -f orcinus.yml --wait
+#
+# - db     → StatefulSet + headless Service + 5Gi PVC; passwords stored in a Secret
+# - wordpress → Deployment + Service + 5Gi PVC, exposed via Ingress at wordpress.local
+services:
+  db:
+    image: mariadb:11
+    ports:
+      - "3306"                       # ClusterIP Service so `wordpress` can reach db:3306
+    environment:
+      - MARIADB_DATABASE=wordpress
+      - MARIADB_USER=wordpress
+      - MARIADB_PASSWORD=wordpress
+      - MARIADB_ROOT_PASSWORD=change-me-root
+    volumes:
+      - dbdata:/var/lib/mysql
+    x-orcinus-controller: statefulset
+    x-orcinus-volume-size: 5Gi
+    x-orcinus-secret:
+      - MARIADB_PASSWORD
+      - MARIADB_ROOT_PASSWORD
+
+  wordpress:
+    image: wordpress:6
+    ports:
+      - "80:80"
+    environment:
+      - WORDPRESS_DB_HOST=db:3306
+      - WORDPRESS_DB_USER=wordpress
+      - WORDPRESS_DB_PASSWORD=wordpress
+      - WORDPRESS_DB_NAME=wordpress
+    volumes:
+      - wpdata:/var/www/html
+    depends_on:
+      - db
+    x-orcinus-volume-size: 5Gi
+    x-orcinus-expose: ingress
+    x-orcinus-host: wordpress.local
+    x-orcinus-secret:
+      - WORDPRESS_DB_PASSWORD
+
+volumes:
+  dbdata: {}
+  wpdata: {}

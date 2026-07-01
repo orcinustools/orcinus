@@ -1,0 +1,67 @@
+# Expose a web app through Traefik (the cluster's default ingress) with an
+# automatic Let's Encrypt TLS certificate via cert-manager.
+#
+# Prerequisites:
+#   - cert-manager installed (single manifest — orcinus can apply it):
+#       orcinus deploy -f local/cert-manager.yaml
+#   - a public DNS A/AAAA record for the host below pointing at your cluster
+#   - port 80/443 reachable from the internet (HTTP-01 challenge)
+#
+# Then:
+#   orcinus deploy -f orcinus.yml --wait
+#
+# This single file mixes a compose service with raw Kubernetes manifests; orcinus
+# detects each document independently.
+
+# --- 1) the app (compose → Deployment + ClusterIP Service `whoami`) ---
+services:
+  whoami:
+    image: traefik/whoami:v1.10
+    ports:
+      - "80"
+    deploy:
+      replicas: 2
+
+---
+# --- 2) Let's Encrypt issuer (cert-manager, HTTP-01 solved through Traefik) ---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
+
+---
+# --- 3) Ingress via Traefik with a Let's Encrypt certificate ---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whoami
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - whoami.example.com
+      secretName: whoami-tls
+  rules:
+    - host: whoami.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: whoami
+                port:
+                  number: 80
