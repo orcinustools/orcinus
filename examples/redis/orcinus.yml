@@ -1,0 +1,23 @@
+# Redis with persistence (AOF).
+#
+#   orcinus deploy -f orcinus.yml --wait
+#
+# Other services reach it at redis:6379 (password: change-me).
+services:
+  redis:
+    image: redis:7
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - change-me
+    ports:
+      - "6379"
+    volumes:
+      - redisdata:/data
+    x-orcinus-controller: statefulset
+    x-orcinus-volume-size: 2Gi
+
+volumes:
+  redisdata: {}

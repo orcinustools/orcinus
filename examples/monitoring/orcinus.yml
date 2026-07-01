@@ -1,0 +1,35 @@
+# Monitoring stack: Prometheus + Grafana.
+#
+#   orcinus deploy -f orcinus.yml --wait
+#
+# Prometheus runs with its built-in default config (scrapes itself). In Grafana,
+# add a Prometheus data source with URL http://prometheus:9090 (in-cluster DNS).
+# Grafana admin password is stored in a Secret.
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "9090"
+    volumes:
+      - promdata:/prometheus
+    x-orcinus-volume-size: 5Gi
+    x-orcinus-expose: ingress
+    x-orcinus-host: prometheus.local
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=change-me
+    volumes:
+      - grafanadata:/var/lib/grafana
+    x-orcinus-volume-size: 2Gi
+    x-orcinus-expose: ingress
+    x-orcinus-host: grafana.local
+    x-orcinus-secret:
+      - GF_SECURITY_ADMIN_PASSWORD
+
+volumes:
+  promdata: {}
+  grafanadata: {}

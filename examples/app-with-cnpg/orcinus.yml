@@ -1,0 +1,69 @@
+# A web app (Adminer) that connects to the CloudNativePG cluster from
+# examples/postgres-operator.
+#
+# Deploy that example FIRST — the operator creates, in namespace `databases`:
+#   - Service `pg-cluster-rw`  (read/write endpoint)
+#   - Secret  `pg-cluster-app` (keys: username, password, dbname, host, port, uri, …)
+#
+# Then:
+#   orcinus deploy -f orcinus.yml --wait
+#
+# All-manifest example: orcinus applies these as-is. The app consumes the
+# operator-generated Secret via envFrom — no credentials in this file.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  namespace: databases
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adminer
+  template:
+    metadata:
+      labels:
+        app: adminer
+    spec:
+      containers:
+        - name: adminer
+          image: adminer:4
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ADMINER_DEFAULT_SERVER
+              value: pg-cluster-rw            # CNPG read/write Service
+          envFrom:
+            - secretRef:
+                name: pg-cluster-app          # username/password/dbname/uri from the operator
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+  namespace: databases
+spec:
+  selector:
+    app: adminer
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: adminer
+  namespace: databases
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: adminer.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: adminer
+                port:
+                  number: 80

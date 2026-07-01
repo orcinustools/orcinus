@@ -12,6 +12,9 @@ orcinus deploy --wait          # picks up orcinus.yml automatically
 | [`wordpress/`](./wordpress/orcinus.yml) | Fullstack **WordPress + MariaDB** — StatefulSet DB, PVCs, secrets, Ingress. Pure compose with `x-orcinus-*`. |
 | [`postgres-operator/`](./postgres-operator/orcinus.yml) | **HA Postgres via an operator** (CloudNativePG) — applies the operator's `Cluster` custom resource. |
 | [`traefik-letsencrypt/`](./traefik-letsencrypt/orcinus.yml) | Web app **exposed through Traefik with a Let's Encrypt cert** (cert-manager). Mixes a compose service with raw k8s manifests in one file. |
+| [`redis/`](./redis/orcinus.yml) | **Redis** with persistence — StatefulSet + PVC + Service. Reachable at `redis:6379`. |
+| [`monitoring/`](./monitoring/orcinus.yml) | **Prometheus + Grafana** stack — PVCs, Grafana admin password in a Secret, both exposed via Ingress. |
+| [`app-with-cnpg/`](./app-with-cnpg/orcinus.yml) | A web app (**Adminer**) connecting to the CNPG Postgres cluster from `postgres-operator/`, consuming the operator-generated Secret via `envFrom`. |
 
 Single-file basics also live here: [`orcinus.yml`](./orcinus.yml) and
 [`docker-compose.yml`](./docker-compose.yml).
