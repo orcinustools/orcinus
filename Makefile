@@ -2,7 +2,7 @@
 # The dev toolchain is a user-local Go SDK; point GO at it if it is not on PATH.
 GO ?= go
 BIN ?= bin/orcinus
-PKG := github.com/biznetgio/orcinus
+PKG := github.com/orcinustools/orcinus
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.GitCommit=$(COMMIT)

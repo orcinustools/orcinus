@@ -1,14 +1,14 @@
 #!/usr/bin/env sh
 # Orcinus installer. Downloads the latest release binary for your OS/arch.
 #
-#   curl -fsSL https://raw.githubusercontent.com/biznetgio/orcinus/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install.sh | sh
 #
 # Environment overrides:
 #   ORCINUS_VERSION   release tag to install (default: latest)
 #   ORCINUS_INSTALL   install directory       (default: /usr/local/bin)
 set -eu
 
-REPO="biznetgio/orcinus"
+REPO="orcinustools/orcinus"
 INSTALL_DIR="${ORCINUS_INSTALL:-/usr/local/bin}"
 VERSION="${ORCINUS_VERSION:-latest}"
 

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/biznetgio/orcinus/pkg/compose"
+	"github.com/orcinustools/orcinus/pkg/compose"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

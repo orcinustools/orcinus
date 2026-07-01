@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/biznetgio/orcinus/pkg/compose"
-	"github.com/biznetgio/orcinus/pkg/deploy"
-	"github.com/biznetgio/orcinus/pkg/detect"
+	"github.com/orcinustools/orcinus/pkg/compose"
+	"github.com/orcinustools/orcinus/pkg/deploy"
+	"github.com/orcinustools/orcinus/pkg/detect"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"

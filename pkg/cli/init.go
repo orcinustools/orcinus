@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/biznetgio/orcinus/pkg/cluster"
+	"github.com/orcinustools/orcinus/pkg/cluster"
 )
 
 func newInitCmd() *cobra.Command {

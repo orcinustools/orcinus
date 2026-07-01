@@ -1,4 +1,4 @@
-module github.com/biznetgio/orcinus
+module github.com/orcinustools/orcinus
 
 go 1.24.0
 

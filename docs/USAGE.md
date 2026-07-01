@@ -65,10 +65,10 @@ Commands fall into two groups: **cluster lifecycle** (`init`, `join`, `status`,
 
 ```bash
 # Latest release binary (Linux/macOS, amd64/arm64)
-curl -fsSL https://raw.githubusercontent.com/biznetgio/orcinus/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install.sh | sh
 
 # Or with Go
-go install github.com/biznetgio/orcinus/cmd/orcinus@latest
+go install github.com/orcinustools/orcinus/cmd/orcinus@latest
 ```
 
 The cluster-lifecycle commands (`init`/`join`/`status`/`down`) require a container

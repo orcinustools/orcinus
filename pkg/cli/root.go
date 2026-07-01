@@ -6,14 +6,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/biznetgio/orcinus/pkg/version"
+	"github.com/orcinustools/orcinus/pkg/version"
 )
 
 // NewRootCmd builds the top-level orcinus command.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "orcinus",
-		Short:         "Lightweight Kubernetes (k3s) that natively understands docker-compose",
+		Short:         "Lightweight Kubernetes that natively understands docker-compose",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

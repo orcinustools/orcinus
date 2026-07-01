@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/biznetgio/orcinus/pkg/deploy"
+	"github.com/orcinustools/orcinus/pkg/deploy"
 )
 
 func newLsCmd() *cobra.Command {

@@ -28,14 +28,14 @@ resource limits/requests, healthcheck→liveness probe, multiple ports.
 
 ```bash
 # Latest release binary (Linux/macOS, amd64/arm64)
-curl -fsSL https://raw.githubusercontent.com/biznetgio/orcinus/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install.sh | sh
 
 # Or with Go
-go install github.com/biznetgio/orcinus/cmd/orcinus@latest
+go install github.com/orcinustools/orcinus/cmd/orcinus@latest
 ```
 
 Prebuilt archives + checksums are attached to each [GitHub release]
-(https://github.com/biznetgio/orcinus/releases), produced by goreleaser.
+(https://github.com/orcinustools/orcinus/releases), produced by goreleaser.
 
 ## Build
 

@@ -19,8 +19,8 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/biznetgio/orcinus/pkg/version.Version={{ .Version }}
-      - -X github.com/biznetgio/orcinus/pkg/version.GitCommit={{ .ShortCommit }}
+      - -X github.com/orcinustools/orcinus/pkg/version.Version={{ .Version }}
+      - -X github.com/orcinustools/orcinus/pkg/version.GitCommit={{ .ShortCommit }}
 
 archives:
   - id: default
@@ -47,5 +47,5 @@ changelog:
 
 release:
   github:
-    owner: biznetgio
+    owner: orcinustools
     name: orcinus

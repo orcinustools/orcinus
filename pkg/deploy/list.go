@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/biznetgio/orcinus/pkg/compose"
+	"github.com/orcinustools/orcinus/pkg/compose"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"

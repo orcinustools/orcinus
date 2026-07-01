@@ -1,12 +1,12 @@
-// Command orcinus is a single, multicall binary: a lightweight k3s-based
-// Kubernetes distribution that natively understands docker-compose.
+// Command orcinus is a single, multicall binary: a lightweight Kubernetes
+// distribution that natively understands docker-compose.
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/biznetgio/orcinus/pkg/cli"
+	"github.com/orcinustools/orcinus/pkg/cli"
 )
 
 func main() {
