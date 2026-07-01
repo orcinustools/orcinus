@@ -18,6 +18,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -65,6 +66,7 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	defer os.RemoveAll(tmpDir)
 
 	secrets := map[string][]string{}
+	ingressCfgs := map[string]ingressCfg{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
@@ -77,6 +79,9 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, names := range pp.secrets {
 			secrets[svc] = append(secrets[svc], names...)
+		}
+		for svc, cfg := range pp.ingress {
+			ingressCfgs[svc] = cfg
 		}
 		tmp := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s", i, filepath.Base(f)))
 		if err := os.WriteFile(tmp, pp.content, 0o600); err != nil {
@@ -122,8 +127,68 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	}
 	objects = append(objects, extra...)
 
+	// 6. Apply ingress hints (TLS/path/port/class) to generated Ingresses.
+	applyIngressConfig(objects, ingressCfgs)
+
 	sortObjects(objects)
 	return objects, nil
+}
+
+// applyIngressConfig enriches each generated Ingress with the service's
+// x-orcinus ingress hints: cert-manager TLS, ingress class, path, backend port.
+func applyIngressConfig(objects []runtime.Object, cfgs map[string]ingressCfg) {
+	if len(cfgs) == 0 {
+		return
+	}
+	for _, obj := range objects {
+		ing, ok := obj.(*networkingv1.Ingress)
+		if !ok {
+			continue
+		}
+		cfg, ok := cfgs[ing.Name] // kompose names the Ingress after the service
+		if !ok {
+			continue
+		}
+		if cfg.Class != "" {
+			c := cfg.Class
+			ing.Spec.IngressClassName = &c
+		}
+		if cfg.TLS != "" {
+			if ing.Annotations == nil {
+				ing.Annotations = map[string]string{}
+			}
+			ing.Annotations["cert-manager.io/cluster-issuer"] = cfg.TLS
+			host := ingressHost(ing)
+			ing.Spec.TLS = []networkingv1.IngressTLS{{
+				Hosts:      []string{host},
+				SecretName: ing.Name + "-tls",
+			}}
+		}
+		for ri := range ing.Spec.Rules {
+			rule := &ing.Spec.Rules[ri]
+			if rule.HTTP == nil {
+				continue
+			}
+			for pi := range rule.HTTP.Paths {
+				p := &rule.HTTP.Paths[pi]
+				if cfg.Path != "" {
+					p.Path = cfg.Path
+				}
+				if cfg.Port != 0 && p.Backend.Service != nil {
+					p.Backend.Service.Port = networkingv1.ServiceBackendPort{Number: int32(cfg.Port)}
+				}
+			}
+		}
+	}
+}
+
+func ingressHost(ing *networkingv1.Ingress) string {
+	for _, r := range ing.Spec.Rules {
+		if r.Host != "" {
+			return r.Host
+		}
+	}
+	return ""
 }
 
 // decorate stamps ownership labels and namespace on every object.

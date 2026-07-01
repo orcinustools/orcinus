@@ -20,6 +20,7 @@ func NewRootCmd() *cobra.Command {
 
 	root.AddCommand(
 		newClusterCmd(),
+		newPluginCmd(),
 		newDeployCmd(),
 		newRmCmd(),
 		newLsCmd(),

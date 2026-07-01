@@ -15,6 +15,11 @@ const (
 	extHost       = "x-orcinus-host"       // ingress host (used with expose: ingress)
 	extVolumeSize = "x-orcinus-volume-size"
 	extSecret     = "x-orcinus-secret" // list (or scalar) of env var names to store in a Secret
+
+	extTLS          = "x-orcinus-tls"           // cert-manager ClusterIssuer name (e.g. "letsencrypt")
+	extPath         = "x-orcinus-path"          // ingress path (default "/")
+	extPort         = "x-orcinus-port"          // service port the ingress routes to
+	extIngressClass = "x-orcinus-ingress-class" // ingress class (e.g. traefik, nginx)
 )
 
 // kompose native label keys we translate onto.
@@ -25,6 +30,14 @@ const (
 	lblVolumeSize = "kompose.volume.size"
 )
 
+// ingressCfg holds ingress hints applied to a service's Ingress after transform.
+type ingressCfg struct {
+	TLS   string // ClusterIssuer name; enables TLS when non-empty
+	Path  string
+	Port  int
+	Class string
+}
+
 // preprocessed is the result of translating one compose document.
 type preprocessed struct {
 	// content is the rewritten compose bytes (with kompose.* labels injected).
@@ -32,6 +45,8 @@ type preprocessed struct {
 	// secrets maps a service name to env var names that should be stored in a
 	// Secret. Handled after transform since kompose has no direct equivalent.
 	secrets map[string][]string
+	// ingress maps a service name to ingress hints applied after transform.
+	ingress map[string]ingressCfg
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
@@ -42,7 +57,7 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		return nil, fmt.Errorf("parse compose document: %w", err)
 	}
 
-	out := &preprocessed{secrets: map[string][]string{}}
+	out := &preprocessed{secrets: map[string][]string{}, ingress: map[string]ingressCfg{}}
 
 	servicesAny, ok := doc["services"].(map[string]interface{})
 	if !ok {
@@ -81,6 +96,24 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 			default:
 				return nil, fmt.Errorf("service %q: invalid %s=%q", name, extExpose, expose)
 			}
+		}
+
+		// Ingress hints applied after transform (TLS/path/port/class).
+		var ic ingressCfg
+		if v, ok := stringExt(svc[extTLS]); ok {
+			ic.TLS = v
+		}
+		if v, ok := stringExt(svc[extPath]); ok {
+			ic.Path = v
+		}
+		if v, ok := stringExt(svc[extIngressClass]); ok {
+			ic.Class = v
+		}
+		if v, ok := intExt(svc[extPort]); ok {
+			ic.Port = v
+		}
+		if ic != (ingressCfg{}) {
+			out.ingress[name] = ic
 		}
 
 		if len(labels) > 0 {
@@ -139,6 +172,23 @@ func stringExt(v interface{}) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func intExt(v interface{}) (int, bool) {
+	switch t := v.(type) {
+	case int:
+		return t, true
+	case int64:
+		return int(t), true
+	case float64:
+		return int(t), true
+	case string:
+		var n int
+		if _, err := fmt.Sscanf(t, "%d", &n); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 func stringSliceExt(v interface{}) []string {

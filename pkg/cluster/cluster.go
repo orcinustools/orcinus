@@ -28,6 +28,8 @@ type InitOptions struct {
 	Name              string
 	Image             string
 	APIPort           int      // host port mapped to the in-container API (6443)
+	HTTPPort          int      // host port → ingress :80 (0 = don't publish)
+	HTTPSPort         int      // host port → ingress :443 (0 = don't publish)
 	BindAddress       string   // host interface to publish the API port on (default 127.0.0.1)
 	Advertise         string   // address other nodes/clients use (TLS SAN, kubeconfig, join)
 	Token             string   // optional fixed join token
@@ -85,30 +87,37 @@ func Init(o InitOptions) (*InitResult, error) {
 		return nil, fmt.Errorf("a cluster named %q already exists but is not running; run `orcinus cluster down` first", o.Name)
 	}
 	if !exists {
-		args := []string{
+		// Docker run flags, including port publishing.
+		runFlags := []string{
 			"run", "-d", "--privileged",
 			"--name", o.Name,
 			"--label", "orcinus.cluster=" + o.Name,
 			"-p", fmt.Sprintf("%s:%d:6443", o.BindAddress, o.APIPort),
-			o.Image, "server",
-			"--write-kubeconfig-mode=644",
 		}
-		// TLS SANs: always loopback, plus any advertised/bound address so the
-		// generated cert is valid for the address clients actually use.
+		if o.HTTPPort > 0 {
+			runFlags = append(runFlags, "-p", fmt.Sprintf("0.0.0.0:%d:80", o.HTTPPort))
+		}
+		if o.HTTPSPort > 0 {
+			runFlags = append(runFlags, "-p", fmt.Sprintf("0.0.0.0:%d:443", o.HTTPSPort))
+		}
+
+		// Runtime server command.
+		serverCmd := []string{o.Image, "server", "--write-kubeconfig-mode=644"}
 		for _, san := range tlsSANs(o.BindAddress, o.Advertise) {
-			args = append(args, "--tls-san="+san)
+			serverCmd = append(serverCmd, "--tls-san="+san)
 		}
 		if o.Token != "" {
-			args = append(args, "--token="+o.Token)
+			serverCmd = append(serverCmd, "--token="+o.Token)
 		}
 		if o.ClusterInit {
-			args = append(args, "--cluster-init")
+			serverCmd = append(serverCmd, "--cluster-init")
 		}
 		if o.DatastoreEndpoint != "" {
-			args = append(args, "--datastore-endpoint="+o.DatastoreEndpoint)
+			serverCmd = append(serverCmd, "--datastore-endpoint="+o.DatastoreEndpoint)
 		}
-		args = append(args, o.ExtraServerArgs...)
+		serverCmd = append(serverCmd, o.ExtraServerArgs...)
 
+		args := append(runFlags, serverCmd...)
 		if out, err := docker(args...); err != nil {
 			return nil, fmt.Errorf("start cluster: %w\n%s", err, out)
 		}

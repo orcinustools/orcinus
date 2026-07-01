@@ -168,6 +168,8 @@ orcinus cluster init [flags]
 | `--name <str>` | `orcinus` | Cluster / server name |
 | `--image <str>` | built-in | Cluster runtime image |
 | `--port <n>` | `6443` | Host port for the API server |
+| `--http-port <n>` | off | Publish ingress HTTP on this host port (e.g. `80`) — needed to serve web traffic |
+| `--https-port <n>` | off | Publish ingress HTTPS on this host port (e.g. `443`) |
 | `--bind <ip>` | `127.0.0.1` | Host interface to publish the API port on (`0.0.0.0` = all) |
 | `--advertise <host>` | — | Address other nodes/clients use to reach this server (adds a TLS SAN; enables remote join) |
 | `--token <str>` | auto | Join token for other nodes |
@@ -357,6 +359,22 @@ orcinus logs web
 orcinus logs web -f --project myapp
 ```
 
+### 5.9b `orcinus plugin`
+
+Manage cluster add-ons (see [`PLUGINS.md`](./PLUGINS.md)).
+
+```
+orcinus plugin list
+orcinus plugin install <name> [--email ...] [--staging]
+```
+
+```bash
+orcinus plugin list
+orcinus plugin install cert-manager --email me@example.com
+orcinus plugin install ingress-nginx
+orcinus plugin install metrics-server
+```
+
 ### 5.10 `orcinus version`
 
 Print the orcinus version, git commit, and the embedded conversion-engine ref.
@@ -432,6 +450,10 @@ keys; orcinus parses them during conversion.
 | `x-orcinus-host` | hostname | Ingress host (with `x-orcinus-expose: ingress`) |
 | `x-orcinus-volume-size` | e.g. `5Gi` | PVC request size for the service's volumes |
 | `x-orcinus-secret` | list of env var names | Move those env vars into a `Secret` (referenced via `secretKeyRef`) |
+| `x-orcinus-tls` | ClusterIssuer name (e.g. `letsencrypt`) | Adds a TLS block + `cert-manager.io/cluster-issuer` annotation (needs the `cert-manager` plugin) |
+| `x-orcinus-path` | path (default `/`) | Ingress path |
+| `x-orcinus-port` | port number | Which service port the ingress routes to |
+| `x-orcinus-ingress-class` | `traefik` \| `nginx` \| … | Ingress class to use |
 
 Example:
 
@@ -454,6 +476,48 @@ services:
 volumes:
   dbdata: {}
 ```
+
+HTTPS example (needs `orcinus plugin install cert-manager` and the cluster's
+ingress ports published — see [`PLUGINS.md`](./PLUGINS.md)):
+
+```yaml
+services:
+  web:
+    image: myapp
+    ports: ["8080"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: app.example.com
+    x-orcinus-tls: letsencrypt        # trusted cert via cert-manager
+```
+
+### Reuse with YAML anchors (Docker-Compose-style extensions)
+
+`orcinus.yml` is parsed with the official Compose parser, so the whole
+[Docker Compose extension](https://docs.docker.com/reference/compose-file/extension/)
+experience works: define a top-level `x-` block once, anchor it with `&`, and
+merge it into services with `<<: *anchor`. Per-service keys override the merged
+defaults.
+
+```yaml
+# reusable defaults (top-level x- fields are ignored as services)
+x-web-defaults: &web
+  restart: always
+  x-orcinus-expose: ingress
+  x-orcinus-host: app.local
+
+services:
+  frontend:
+    <<: *web                # inherits expose + host
+    image: nginx:1.27
+    ports: ["80"]
+  api:
+    <<: *web
+    image: myapi:1.0
+    ports: ["8080"]
+    x-orcinus-host: api.local   # override the merged default
+```
+
+This produces two Ingresses (`app.local`, `api.local`) with no duplication.
 
 ---
 

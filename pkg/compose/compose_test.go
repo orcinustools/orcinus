@@ -222,6 +222,40 @@ func TestConvertSecretExtraction(t *testing.T) {
 	}
 }
 
+func TestConvertIngressTLSSugar(t *testing.T) {
+	const f = `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: app.example.com
+    x-orcinus-tls: letsencrypt
+    x-orcinus-ingress-class: traefik
+    x-orcinus-path: /
+`
+	for _, o := range convertString(t, f) {
+		ing, ok := o.(*networkingv1.Ingress)
+		if !ok {
+			continue
+		}
+		if got := ing.Annotations["cert-manager.io/cluster-issuer"]; got != "letsencrypt" {
+			t.Errorf("cluster-issuer annotation = %q, want letsencrypt", got)
+		}
+		if ing.Spec.IngressClassName == nil || *ing.Spec.IngressClassName != "traefik" {
+			t.Errorf("ingressClassName = %v, want traefik", ing.Spec.IngressClassName)
+		}
+		if len(ing.Spec.TLS) == 0 || ing.Spec.TLS[0].SecretName != "web-tls" {
+			t.Fatalf("expected TLS block with secret web-tls, got %+v", ing.Spec.TLS)
+		}
+		if ing.Spec.TLS[0].Hosts[0] != "app.example.com" {
+			t.Errorf("TLS host = %v, want app.example.com", ing.Spec.TLS[0].Hosts)
+		}
+		return
+	}
+	t.Fatal("no Ingress found")
+}
+
 func TestConvertIngress(t *testing.T) {
 	objs := convertFixture(t)
 	for _, o := range objs {

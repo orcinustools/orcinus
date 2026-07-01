@@ -7,6 +7,7 @@ to it, no hand-written Kubernetes manifests required.
 - **Architecture & design:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
 - **CLI usage guide:** [`docs/USAGE.md`](./docs/USAGE.md)
 - **Cluster setup (single / multi-node / HA):** [`docs/CLUSTER.md`](./docs/CLUSTER.md)
+- **Plugins & cluster add-ons (design):** [`docs/PLUGINS.md`](./docs/PLUGINS.md)
 
 Orcinus embeds a lightweight Kubernetes runtime and **forks kompose**
 (`third_party/kompose`) so the compose→Kubernetes conversion is fully Docker
@@ -20,6 +21,7 @@ Compose compatible and under our control.
 | M1 | `orcinus deploy` compose→k8s conversion (+ `x-orcinus-*`) | ✅ done |
 | M2 | Cluster ops: `deploy` (apply/prune/wait), `rm`, `ls`, `ps`, `logs` | ✅ done |
 | M3 | Cluster runtime: `init` / `join` / `status` / `down` (auto kubeconfig) | ✅ done |
+| M4 | Plugins (`plugin install cert-manager` …) + ingress/TLS `x-orcinus-tls` | ✅ done |
 
 Verified compose→k8s mappings: controllers (Deployment/StatefulSet/DaemonSet),
 Service (ClusterIP/NodePort), Ingress, PVC, Secret extraction, replicas,

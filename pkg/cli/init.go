@@ -32,6 +32,8 @@ func newInitCmd() *cobra.Command {
 	f.StringVar(&o.Name, "name", cluster.DefaultName, "cluster/server name")
 	f.StringVar(&o.Image, "image", cluster.DefaultImage, "cluster runtime image")
 	f.IntVar(&o.APIPort, "port", 6443, "host port for the API server")
+	f.IntVar(&o.HTTPPort, "http-port", 0, "publish ingress HTTP on this host port (e.g. 80; 0 = don't publish)")
+	f.IntVar(&o.HTTPSPort, "https-port", 0, "publish ingress HTTPS on this host port (e.g. 443; 0 = don't publish)")
 	f.StringVar(&o.BindAddress, "bind", "127.0.0.1", "host interface to publish the API port on (use 0.0.0.0 for all interfaces)")
 	f.StringVar(&o.Advertise, "advertise", "", "address other nodes/clients use to reach this server (adds a TLS SAN; enables remote join)")
 	f.StringVar(&o.Token, "token", "", "join token (default: auto-generated)")
