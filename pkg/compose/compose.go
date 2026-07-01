@@ -147,7 +147,36 @@ func decorate(objects []runtime.Object, project, namespace string) {
 		if namespace != "" {
 			meta.SetNamespace(namespace)
 		}
+
+		// Also stamp the pod template so the resulting Pods carry ownership
+		// labels (used by `orcinus ps`). This only adds template labels; the
+		// immutable selector is left untouched.
+		if tmpl := templateMetaOf(obj); tmpl != nil {
+			tl := tmpl.GetLabels()
+			if tl == nil {
+				tl = map[string]string{}
+			}
+			tl[LabelManagedBy] = ManagedByValue
+			if project != "" {
+				tl[LabelPartOf] = project
+				tl[LabelProject] = project
+			}
+			tmpl.SetLabels(tl)
+		}
 	}
+}
+
+// templateMetaOf returns the pod-template ObjectMeta for supported controllers.
+func templateMetaOf(obj runtime.Object) *metav1.ObjectMeta {
+	switch t := obj.(type) {
+	case *appsv1.Deployment:
+		return &t.Spec.Template.ObjectMeta
+	case *appsv1.StatefulSet:
+		return &t.Spec.Template.ObjectMeta
+	case *appsv1.DaemonSet:
+		return &t.Spec.Template.ObjectMeta
+	}
+	return nil
 }
 
 // applySecrets moves the env vars named by x-orcinus-secret out of each workload's

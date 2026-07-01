@@ -8,8 +8,85 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 )
+
+const richFixture = `
+services:
+  api:
+    image: myapi:1.0
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    x-orcinus-expose: nodeport
+`
+
+func firstDeployment(t *testing.T, objs []runtime.Object) *appsv1.Deployment {
+	t.Helper()
+	for _, o := range objs {
+		if d, ok := o.(*appsv1.Deployment); ok {
+			return d
+		}
+	}
+	t.Fatal("no Deployment found")
+	return nil
+}
+
+func TestConvertResources(t *testing.T) {
+	dep := firstDeployment(t, convertString(t, richFixture))
+	res := dep.Spec.Template.Spec.Containers[0].Resources
+
+	if got := res.Limits[corev1.ResourceCPU]; res.Limits.Cpu().Cmp(resource.MustParse("500m")) != 0 {
+		t.Errorf("cpu limit = %s, want 500m", got.String())
+	}
+	if res.Limits.Memory().IsZero() {
+		t.Errorf("memory limit is zero, want 256M")
+	}
+	if res.Requests.Cpu().Cmp(resource.MustParse("250m")) != 0 {
+		t.Errorf("cpu request = %s, want 250m", res.Requests.Cpu().String())
+	}
+}
+
+func TestConvertHealthcheckProbe(t *testing.T) {
+	dep := firstDeployment(t, convertString(t, richFixture))
+	probe := dep.Spec.Template.Spec.Containers[0].LivenessProbe
+	if probe == nil {
+		t.Fatal("expected a livenessProbe from compose healthcheck")
+	}
+	if probe.Exec == nil || len(probe.Exec.Command) == 0 {
+		t.Errorf("expected an exec probe, got %+v", probe)
+	}
+}
+
+func TestConvertMultiplePortsNodePort(t *testing.T) {
+	objs := convertString(t, richFixture)
+	for _, o := range objs {
+		if svc, ok := o.(*corev1.Service); ok {
+			if svc.Spec.Type != corev1.ServiceTypeNodePort {
+				t.Errorf("service type = %s, want NodePort", svc.Spec.Type)
+			}
+			if len(svc.Spec.Ports) != 2 {
+				t.Errorf("service ports = %d, want 2", len(svc.Spec.Ports))
+			}
+			return
+		}
+	}
+	t.Error("no Service found")
+}
 
 const fixture = `
 services:
@@ -34,11 +111,11 @@ volumes:
   dbdata: {}
 `
 
-func convertFixture(t *testing.T) []runtime.Object {
+func convertString(t *testing.T, content string) []runtime.Object {
 	t.Helper()
 	dir := t.TempDir()
 	f := filepath.Join(dir, "docker-compose.yml")
-	if err := os.WriteFile(f, []byte(fixture), 0o600); err != nil {
+	if err := os.WriteFile(f, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	objs, err := Convert(Options{Files: []string{f}, ProjectName: "proj", Namespace: "demo"})
@@ -46,6 +123,11 @@ func convertFixture(t *testing.T) []runtime.Object {
 		t.Fatalf("Convert: %v", err)
 	}
 	return objs
+}
+
+func convertFixture(t *testing.T) []runtime.Object {
+	t.Helper()
+	return convertString(t, fixture)
 }
 
 func TestConvertControllersAndLabels(t *testing.T) {

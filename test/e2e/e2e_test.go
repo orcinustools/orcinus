@@ -124,6 +124,28 @@ func TestConvertStdinAndForce(t *testing.T) {
 	}
 }
 
+// TestDeployDetectsOrcinusYml verifies that with no -f, `orcinus deploy` picks up
+// orcinus.yml from the current directory.
+func TestDeployDetectsOrcinusYml(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "orcinus.yml"), []byte(
+		"services:\n  web:\n    image: nginx:1.27\n    ports: [\"80:80\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(orcinusBin, "deploy", "--dry-run", "--project", "p")
+	cmd.Dir = dir // run where orcinus.yml lives; no -f given
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("deploy without -f failed: %v\n%s", err, out)
+	}
+	if !contains(string(out), "using orcinus.yml") {
+		t.Errorf("expected orcinus.yml auto-detection, got:\n%s", out)
+	}
+	if !contains(string(out), "kind: Deployment") {
+		t.Errorf("expected a Deployment from orcinus.yml, got:\n%s", out)
+	}
+}
+
 func keys(m map[string]bool) []string {
 	var out []string
 	for k := range m {

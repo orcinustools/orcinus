@@ -1,0 +1,9 @@
+# orcinus.yml — the default project file `orcinus deploy` picks up with no -f.
+# It is auto-detected as compose or manifest per document, same as any input.
+services:
+  web:
+    image: nginx:1.27
+    ports:
+      - "80:80"
+    x-orcinus-expose: ingress
+    x-orcinus-host: web.local

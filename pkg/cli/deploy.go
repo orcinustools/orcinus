@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -18,14 +19,17 @@ import (
 )
 
 type deployOpts struct {
-	files     []string
-	namespace string
-	project   string
-	dryRun    bool
-	as        string
-	output    string
-	replicas  int
-	pvcSize   string
+	files      []string
+	namespace  string
+	project    string
+	dryRun     bool
+	as         string
+	output     string
+	replicas   int
+	pvcSize    string
+	kubeconfig string
+	prune      bool
+	wait       bool
 }
 
 func newDeployCmd() *cobra.Command {
@@ -38,7 +42,7 @@ func newDeployCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringArrayVarP(&o.files, "file", "f", []string{"docker-compose.yml"}, "input file (repeatable; '-' = stdin)")
+	f.StringArrayVarP(&o.files, "file", "f", nil, "input file (repeatable; '-' = stdin). Default: auto-detect orcinus.yml/compose file in the current directory")
 	f.StringVarP(&o.namespace, "namespace", "n", "", "target namespace")
 	f.StringVar(&o.project, "project", "", "ownership label (default: current directory name)")
 	f.BoolVar(&o.dryRun, "dry-run", false, "render instead of applying")
@@ -46,6 +50,9 @@ func newDeployCmd() *cobra.Command {
 	f.StringVarP(&o.output, "output", "o", "", "also write converted manifests to this directory")
 	f.IntVar(&o.replicas, "replicas", 1, "default replicas when a service specifies none")
 	f.StringVar(&o.pvcSize, "pvc-size", "1Gi", "default PersistentVolumeClaim size")
+	f.StringVar(&o.kubeconfig, "kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
+	f.BoolVar(&o.prune, "prune", true, "remove owned resources no longer present in the input")
+	f.BoolVar(&o.wait, "wait", false, "wait until workloads are ready")
 	return cmd
 }
 
@@ -58,6 +65,17 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		if wd, err := os.Getwd(); err == nil {
 			o.project = filepath.Base(wd)
 		}
+	}
+
+	// No -f: discover a default project file in the current directory,
+	// preferring orcinus.yml (CLI.md §3.3).
+	if len(o.files) == 0 {
+		found, err := discoverDefaultFile()
+		if err != nil {
+			return err
+		}
+		o.files = []string{found}
+		fmt.Fprintf(cmd.ErrOrStderr(), "using %s\n", found)
 	}
 
 	// Read every source and split into individual YAML documents, classifying
@@ -142,9 +160,44 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		return err
 	}
 
-	// Applying to a live cluster is M2 (client-go apply). Until then, guide the
-	// user to the fully-working conversion path.
-	return fmt.Errorf("applying to a cluster is not implemented yet (M2); use --dry-run [-o dir] to render manifests")
+	// Apply to the cluster via server-side apply (+ prune + optional wait).
+	cfg, err := deploy.LoadRESTConfig(o.kubeconfig)
+	if err != nil {
+		return err
+	}
+	applier, err := deploy.NewApplier(cfg)
+	if err != nil {
+		return err
+	}
+	applied, err := applier.Apply(cmd.Context(), objects, deploy.ApplyOptions{
+		Project:          o.project,
+		DefaultNamespace: o.namespace,
+		Prune:            o.prune,
+		Wait:             o.wait,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "applied %d object(s) as project %q\n", len(applied), o.project)
+	return nil
+}
+
+// defaultFiles lists, in priority order, the files `orcinus deploy` looks for
+// when no -f is given. orcinus.yml wins over compose files.
+var defaultFiles = []string{
+	"orcinus.yml", "orcinus.yaml",
+	"compose.yaml", "compose.yml",
+	"docker-compose.yml", "docker-compose.yaml",
+}
+
+func discoverDefaultFile() (string, error) {
+	for _, name := range defaultFiles {
+		if fi, err := os.Stat(name); err == nil && !fi.IsDir() {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("no input file found (looked for %s); pass -f explicitly",
+		strings.Join(defaultFiles, ", "))
 }
 
 func readSource(src string, stdin io.Reader) ([]byte, error) {
