@@ -1,0 +1,358 @@
+{
+  "kind": "List",
+  "apiVersion": "v1",
+  "metadata": {},
+  "items": [
+    {
+      "kind": "Service",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "mariadb",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "mariadb"
+        },
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.service.type": "headless",
+          "kompose.version": "%VERSION%"
+        }
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "headless",
+            "port": 55555,
+            "targetPort": 0
+          }
+        ],
+        "selector": {
+          "io.kompose.service": "mariadb"
+        },
+        "clusterIP": "None"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "kind": "Service",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "wordpress",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "wordpress"
+        },
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        }
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "80",
+            "port": 80,
+            "targetPort": 80
+          },
+          {
+            "name": "443",
+            "port": 443,
+            "targetPort": 443
+          }
+        ],
+        "selector": {
+          "io.kompose.service": "wordpress"
+        }
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.service.type": "headless",
+          "kompose.version": "%VERSION%"
+        },
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "mariadb"
+        },
+        "name": "mariadb"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "io.kompose.service": "mariadb"
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kompose.cmd": "%CMD%",
+              "kompose.service.type": "headless",
+              "kompose.version": "%VERSION%"
+            },
+            "creationTimestamp": null,
+            "labels": {
+              "io.kompose.service": "mariadb"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "ALLOW_EMPTY_PASSWORD",
+                    "value": "yes"
+                  },
+                  {
+                    "name": "MARIADB_DATABASE",
+                    "value": "bitnami_wordpress"
+                  },
+                  {
+                    "name": "MARIADB_USER",
+                    "value": "bn_wordpress"
+                  }
+                ],
+                "image": "bitnami/mariadb:latest",
+                "imagePullPolicy": "",
+                "name": "mariadb",
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/bitnami/mariadb",
+                    "name": "servicenamechange-mariadb-data"
+                  }
+                ]
+              }
+            ],
+            "restartPolicy": "Always",
+            "serviceAccountName": "",
+            "volumes": [
+              {
+                "name": "servicenamechange-mariadb-data",
+                "persistentVolumeClaim": {
+                  "claimName": "servicenamechange-mariadb-data"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "servicenamechange-mariadb-data",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "servicenamechange-mariadb-data"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "100Mi"
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        },
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "wordpress"
+        },
+        "name": "wordpress"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "io.kompose.service": "wordpress"
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kompose.cmd": "%CMD%",
+              "kompose.version": "%VERSION%"
+            },
+            "creationTimestamp": null,
+            "labels": {
+              "io.kompose.service": "wordpress"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "ALLOW_EMPTY_PASSWORD",
+                    "value": "yes"
+                  },
+                  {
+                    "name": "MARIADB_HOST",
+                    "value": "mariadb"
+                  },
+                  {
+                    "name": "MARIADB_PORT",
+                    "value": "3306"
+                  },
+                  {
+                    "name": "WORDPRESS_DATABASE_NAME",
+                    "value": "bitnami_wordpress"
+                  },
+                  {
+                    "name": "WORDPRESS_DATABASE_USER",
+                    "value": "bn_wordpress"
+                  }
+                ],
+                "image": "bitnami/wordpress:latest",
+                "imagePullPolicy": "",
+                "name": "wordpress",
+                "ports": [
+                  {
+                    "containerPort": 80
+                  },
+                  {
+                    "containerPort": 443
+                  }
+                ],
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/bitnami/wordpress",
+                    "name": "servicenamechange-wordpress-data"
+                  },
+                  {
+                    "mountPath": "/bitnami/apache",
+                    "name": "servicenamechange-apache-data"
+                  },
+                  {
+                    "mountPath": "/bitnami/php",
+                    "name": "servicenamechange-php-data"
+                  }
+                ]
+              }
+            ],
+            "restartPolicy": "Always",
+            "serviceAccountName": "",
+            "volumes": [
+              {
+                "name": "servicenamechange-wordpress-data",
+                "persistentVolumeClaim": {
+                  "claimName": "servicenamechange-wordpress-data"
+                }
+              },
+              {
+                "name": "servicenamechange-apache-data",
+                "persistentVolumeClaim": {
+                  "claimName": "servicenamechange-apache-data"
+                }
+              },
+              {
+                "name": "servicenamechange-php-data",
+                "persistentVolumeClaim": {
+                  "claimName": "servicenamechange-php-data"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "servicenamechange-wordpress-data",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "servicenamechange-wordpress-data"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "100Mi"
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "servicenamechange-apache-data",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "servicenamechange-apache-data"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "100Mi"
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "servicenamechange-php-data",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "servicenamechange-php-data"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "100Mi"
+          }
+        }
+      },
+      "status": {}
+    }
+  ]
+}

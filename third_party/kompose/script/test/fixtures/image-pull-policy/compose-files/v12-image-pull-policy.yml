@@ -1,0 +1,6 @@
+services:
+  nginx0:
+    image: nginx
+    labels:
+      kompose.image-pull-policy: "Always"
+

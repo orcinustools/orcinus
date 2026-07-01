@@ -1,0 +1,14 @@
+
+services:
+  other-toplevel-base:
+    image: nginx
+    volumes:
+      - firstvolume:/var/www/nginx
+    configs:
+      - source: firstconfig
+        target: /etc/nginx.conf
+        mode: 644
+
+configs:
+  firstconfig:
+    file: ./first_config.txt

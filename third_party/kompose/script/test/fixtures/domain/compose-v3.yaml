@@ -1,0 +1,5 @@
+services:
+  dns:
+    image: phensley/docker-dns
+    hostname: affy
+    domainname: affy.com

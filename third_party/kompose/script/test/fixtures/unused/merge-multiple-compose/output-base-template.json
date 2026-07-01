@@ -1,0 +1,90 @@
+{
+  "kind": "List",
+  "apiVersion": "v1",
+  "metadata": {},
+  "items": [
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        },
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "web"
+        },
+        "name": "web"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "io.kompose.service": "web"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kompose.cmd": "%CMD%",
+              "kompose.version": "%VERSION%"
+            },
+            "creationTimestamp": null,
+            "labels": {
+              "io.kompose.service": "web"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "ENABLE_XDEBUG",
+                    "value": "1"
+                  },
+                  {
+                    "name": "ERRORS",
+                    "value": "1"
+                  },
+                  {
+                    "name": "HIDE_NGINX_HEADERS",
+                    "value": "0"
+                  },
+                  {
+                    "name": "PHP_ERRORS_STDERR",
+                    "value": "1"
+                  },
+                  {
+                    "name": "REMOVE_FILES",
+                    "value": "0"
+                  },
+                  {
+                    "name": "RUN_SCRIPTS",
+                    "value": "1"
+                  }
+                ],
+                "image": "richarvey/nginx-php-fpm",
+                "imagePullPolicy": "",
+                "name": "web",
+                "resources": {
+                  "limits": {
+                    "cpu": "1"
+                  },
+                  "requests": {
+                    "cpu": "1"
+                  }
+                }
+              }
+            ],
+            "restartPolicy": "Always",
+            "serviceAccountName": "",
+            "volumes": null
+          }
+        }
+      },
+      "status": {}
+    }
+  ]
+}

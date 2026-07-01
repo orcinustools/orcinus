@@ -1,0 +1,8 @@
+
+volumes:
+  firstvolume:
+    external: true
+
+configs:
+  firstconfig:
+    file: ./second_config.txt

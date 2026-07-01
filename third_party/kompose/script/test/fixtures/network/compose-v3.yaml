@@ -1,0 +1,14 @@
+networks:
+  app:
+    external:
+      name: app-network
+  web:
+    external:
+      name: web-network
+services:
+  appFoo:
+    image: foo:latest
+    command: sh -c "echo Hello Foo"
+    networks:
+      app: {}
+      web: {}

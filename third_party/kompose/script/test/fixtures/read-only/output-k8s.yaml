@@ -1,0 +1,44 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: test
+  name: test
+spec:
+  ports:
+    - name: "80"
+      port: 80
+      targetPort: 80
+  selector:
+    io.kompose.service: test
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: test
+  name: test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: test
+  template:
+    metadata:
+      labels:
+        io.kompose.service: test
+    spec:
+      containers:
+        - image: alpine
+          name: test
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: true
+      restartPolicy: Always
+
+

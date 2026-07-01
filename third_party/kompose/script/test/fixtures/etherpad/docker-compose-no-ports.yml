@@ -1,0 +1,4 @@
+
+services:
+  mariadb:
+    image: centos/mariadb

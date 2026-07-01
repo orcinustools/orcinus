@@ -1,0 +1,100 @@
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    io.kompose.service: bar
+  name: bar
+spec:
+  replicas: 99
+  selector:
+    io.kompose.service: bar
+  template:
+    metadata:
+      labels:
+        io.kompose.service: bar
+    spec:
+      containers:
+        - image: ' '
+          name: bar
+      restartPolicy: Always
+  test: false
+  triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+          - bar
+        from:
+          kind: ImageStreamTag
+          name: bar:latest
+      type: ImageChange
+
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  labels:
+    io.kompose.service: bar
+  name: bar
+spec:
+  lookupPolicy:
+    local: false
+  tags:
+    - from:
+        kind: DockerImage
+        name: bar
+      name: latest
+      referencePolicy:
+        type: ""
+
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    io.kompose.service: foo
+  name: foo
+spec:
+  replicas: 3
+  selector:
+    io.kompose.service: foo
+  template:
+    metadata:
+      labels:
+        io.kompose.service: foo
+    spec:
+      containers:
+        - image: ' '
+          name: foo
+      restartPolicy: Always
+  test: false
+  triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+          - foo
+        from:
+          kind: ImageStreamTag
+          name: foo:latest
+      type: ImageChange
+
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  labels:
+    io.kompose.service: foo
+  name: foo
+spec:
+  lookupPolicy:
+    local: false
+  tags:
+    - from:
+        kind: DockerImage
+        name: foo
+      name: latest
+      referencePolicy:
+        type: ""
+

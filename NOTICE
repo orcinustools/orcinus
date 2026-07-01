@@ -1,0 +1,28 @@
+Orcinus
+Copyright 2026 The Orcinus Authors
+
+This product includes software developed by third parties, used under the
+Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+kompose (forked)
+--------------------------------------------------------------------------------
+Portions of this product are derived from Kompose, which is a fork maintained
+under third_party/kompose. Changes made by the Orcinus Authors are marked in the
+git history of that directory.
+
+  Kompose
+  Copyright The Kubernetes Authors.
+  https://github.com/kubernetes/kompose
+  Licensed under the Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+k3s / kubectl
+--------------------------------------------------------------------------------
+Orcinus imports k3s (and, through it, kubectl) as a library dependency. Their
+license headers are retained in the vendored/imported module sources.
+
+  k3s
+  Copyright k3s authors (SUSE / k3s-io).
+  https://github.com/k3s-io/k3s
+  Licensed under the Apache License, Version 2.0.

@@ -1,0 +1,27 @@
+# Example compose file exercising orcinus x-orcinus-* extensions.
+services:
+  web:
+    image: nginx:1.27
+    ports:
+      - "80:80"
+    environment:
+      - APP_ENV=production
+    deploy:
+      replicas: 2
+    x-orcinus-expose: ingress
+    x-orcinus-host: web.local
+
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=app
+      - POSTGRES_PASSWORD=s3cr3t
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    x-orcinus-controller: statefulset
+    x-orcinus-volume-size: 5Gi
+    x-orcinus-secret:
+      - POSTGRES_PASSWORD
+
+volumes:
+  dbdata: {}

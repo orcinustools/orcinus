@@ -1,0 +1,7 @@
+
+services:
+    foo:
+        build:
+          context: .
+          dockerfile: build/Dockerfile
+        image: docker.io/cdrage/foobar

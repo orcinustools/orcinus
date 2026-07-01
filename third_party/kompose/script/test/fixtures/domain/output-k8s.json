@@ -1,0 +1,59 @@
+{
+  "kind": "List",
+  "apiVersion": "v1",
+  "metadata": {},
+  "items": [
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        },
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "dns"
+        },
+        "name": "dns"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "io.kompose.service": "dns"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kompose.cmd": "%CMD%",
+              "kompose.version": "%VERSION%"
+            },
+            "creationTimestamp": null,
+            "labels": {
+              "io.kompose.service": "dns"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "image": "phensley/docker-dns",
+                "imagePullPolicy": "",
+                "name": "dns",
+                "resources": {}
+              }
+            ],
+            "hostname": "affy",
+            "restartPolicy": "Always",
+            "serviceAccountName": "",
+            "subdomain": "affy.com",
+            "volumes": null
+          }
+        }
+      },
+      "status": {}
+    }
+  ]
+}

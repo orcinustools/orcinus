@@ -1,0 +1,7 @@
+
+services:
+  server:
+    ports:
+      - 5000:5000
+  new-my-service:
+    image: nginx

@@ -1,0 +1,8 @@
+
+services:
+  httpd:
+    image: docker.io/fedora/apache
+    ports:
+      - "80"
+    volumes:
+      - /var/www/html

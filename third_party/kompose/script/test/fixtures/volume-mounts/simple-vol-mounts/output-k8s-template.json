@@ -1,0 +1,129 @@
+{
+  "kind": "List",
+  "apiVersion": "v1",
+  "metadata": {},
+  "items": [
+    {
+      "kind": "Service",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "httpd",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "httpd"
+        },
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        }
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "80",
+            "port": 80,
+            "targetPort": 80
+          }
+        ],
+        "selector": {
+          "io.kompose.service": "httpd"
+        }
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        },
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "httpd"
+        },
+        "name": "httpd"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "io.kompose.service": "httpd"
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kompose.cmd": "%CMD%",
+              "kompose.version": "%VERSION%"
+            },
+            "creationTimestamp": null,
+            "labels": {
+              "io.kompose.service": "httpd"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "image": "docker.io/fedora/apache",
+                "imagePullPolicy": "",
+                "name": "httpd",
+                "ports": [
+                  {
+                    "containerPort": 80
+                  }
+                ],
+                "resources": {},
+                "volumeMounts": [
+                  {
+                    "mountPath": "/var/www/html",
+                    "name": "httpd-claim0"
+                  }
+                ]
+              }
+            ],
+            "restartPolicy": "Always",
+            "serviceAccountName": "",
+            "volumes": [
+              {
+                "name": "httpd-claim0",
+                "persistentVolumeClaim": {
+                  "claimName": "httpd-claim0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "kind": "PersistentVolumeClaim",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "httpd-claim0",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "httpd-claim0"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "100Mi"
+          }
+        }
+      },
+      "status": {}
+    }
+  ]
+}

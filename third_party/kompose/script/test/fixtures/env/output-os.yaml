@@ -1,0 +1,166 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: another-namenode
+  name: another-namenode
+spec:
+  ports:
+    - name: "50070"
+      port: 50070
+      targetPort: 50070
+    - name: "8020"
+      port: 8020
+      targetPort: 8020
+  selector:
+    io.kompose.service: another-namenode
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: namenode
+  name: namenode
+spec:
+  ports:
+    - name: "50070"
+      port: 50070
+      targetPort: 50070
+    - name: "8020"
+      port: 8020
+      targetPort: 8020
+  selector:
+    io.kompose.service: namenode
+
+---
+apiVersion: v1
+data:
+  BAR: FOO
+  FOO: BAR
+kind: ConfigMap
+metadata:
+  labels:
+    io.kompose.service: another-namenode-hadoop-hive-namenode-env
+  name: hadoop-hive-namenode-env
+
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    io.kompose.service: another-namenode
+  name: another-namenode
+spec:
+  replicas: 1
+  selector:
+    io.kompose.service: another-namenode
+  template:
+    metadata:
+      labels:
+        io.kompose.service: another-namenode
+    spec:
+      containers:
+        - envFrom:
+            - configMapRef:
+                name: hadoop-hive-namenode-env
+          image: ' '
+          name: another-namenode
+          ports:
+            - containerPort: 50070
+              protocol: TCP
+            - containerPort: 8020
+              protocol: TCP
+      restartPolicy: Always
+  test: false
+  triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+          - another-namenode
+        from:
+          kind: ImageStreamTag
+          name: another-namenode:2.0.0-hadoop2.7.4-java8
+      type: ImageChange
+
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  labels:
+    io.kompose.service: another-namenode
+  name: another-namenode
+spec:
+  lookupPolicy:
+    local: false
+  tags:
+    - from:
+        kind: DockerImage
+        name: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+      name: 2.0.0-hadoop2.7.4-java8
+      referencePolicy:
+        type: ""
+
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    io.kompose.service: namenode
+  name: namenode
+spec:
+  replicas: 1
+  selector:
+    io.kompose.service: namenode
+  template:
+    metadata:
+      labels:
+        io.kompose.service: namenode
+    spec:
+      containers:
+        - env:
+            - name: CLUSTER_NAME
+              value: test
+          envFrom:
+            - configMapRef:
+                name: hadoop-hive-namenode-env
+          image: ' '
+          name: namenode
+          ports:
+            - containerPort: 50070
+              protocol: TCP
+            - containerPort: 8020
+              protocol: TCP
+      restartPolicy: Always
+  test: false
+  triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+          - namenode
+        from:
+          kind: ImageStreamTag
+          name: namenode:2.0.0-hadoop2.7.4-java8
+      type: ImageChange
+
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  labels:
+    io.kompose.service: namenode
+  name: namenode
+spec:
+  lookupPolicy:
+    local: false
+  tags:
+    - from:
+        kind: DockerImage
+        name: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+      name: 2.0.0-hadoop2.7.4-java8
+      referencePolicy:
+        type: ""
+

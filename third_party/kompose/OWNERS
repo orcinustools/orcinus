@@ -1,0 +1,12 @@
+# See the OWNERS file documentation:
+# https://github.com/kubernetes/community/blob/master/contributors/devel/owners.md
+
+reviewers:
+  - cdrage
+  - hangyan
+  - TessaIO
+
+approvers:
+  - cdrage
+  - hangyan
+  - TessaIO

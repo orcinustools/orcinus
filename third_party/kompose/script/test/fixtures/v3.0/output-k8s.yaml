@@ -1,0 +1,71 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: redis
+  name: redis
+spec:
+  clusterIP: None
+  ports:
+    - name: headless
+      port: 55555
+      targetPort: 0
+  selector:
+    io.kompose.service: redis
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: foo
+  name: foo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: foo
+  template:
+    metadata:
+      labels:
+        io.kompose.service: foo
+    spec:
+      containers:
+        - args:
+            - sh
+            - -c
+            - echo Hello Foo
+          image: foo:latest
+          name: foo
+      restartPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: redis
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: redis
+  template:
+    metadata:
+      labels:
+        io.kompose.service: redis
+    spec:
+      containers:
+        - image: redis
+          livenessProbe:
+            exec:
+              command:
+                - echo "hello world"
+            failureThreshold: 5
+            periodSeconds: 10
+            timeoutSeconds: 1
+          name: redis
+      restartPolicy: Always
+

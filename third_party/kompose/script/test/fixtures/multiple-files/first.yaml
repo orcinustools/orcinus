@@ -1,0 +1,8 @@
+services:
+  foo:
+    image: foo
+    deploy:
+      replicas: 3
+
+  bar:
+    image: bar

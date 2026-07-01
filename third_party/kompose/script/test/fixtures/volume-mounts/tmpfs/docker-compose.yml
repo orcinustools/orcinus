@@ -1,0 +1,9 @@
+
+services:
+
+  redis-master:
+    image: registry.k8s.io/redis:e2e 
+    ports:
+      - "6379"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid

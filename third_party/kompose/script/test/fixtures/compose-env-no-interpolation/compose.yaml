@@ -1,0 +1,9 @@
+
+services:
+  foo:
+    image: ${DOCKER_REGISTRY-}foo:${IMAGE_TAG:-latest}
+    build: .
+    environment:
+      - VERSION=${IMAGE_TAG:-latest}
+    ports:
+      - 80:80

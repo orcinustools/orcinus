@@ -1,0 +1,10 @@
+
+services:
+  wordpress:
+    image: wordpress
+    ports:
+      - "8080:80"
+    deploy:
+      mode: replicated
+      replicas: 2
+      endpoint_mode: dnsrr

@@ -1,0 +1,10 @@
+services:
+  redis:
+    image: redis:latest
+    deploy:
+      replicas: 1
+    configs:
+      - my_config
+configs:
+  my_config:
+    file: ./my_config.txt

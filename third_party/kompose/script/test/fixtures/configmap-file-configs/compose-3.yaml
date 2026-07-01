@@ -1,0 +1,8 @@
+services:
+  busy:
+    image: busybox
+    ports:
+      - "8081:8080"
+      - "8026:8025"
+    volumes:
+      - /tmp:/tmp:ro

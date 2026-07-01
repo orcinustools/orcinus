@@ -1,0 +1,17 @@
+services:
+  web:
+    image: flask_web      
+    command: python app.py
+    ports:
+     - "5000:5000"
+    volumes:
+     - code_volume:/code
+    links:
+     - redis
+  redis:
+    image: redis
+    labels:
+      kompose.service.type: headless
+
+volumes:
+  code_volume:

@@ -1,0 +1,6 @@
+services:
+  alpine:
+    image: alpine
+    ports:
+      - 80:80
+

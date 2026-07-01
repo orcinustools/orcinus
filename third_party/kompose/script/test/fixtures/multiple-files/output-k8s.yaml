@@ -1,0 +1,46 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: bar
+  name: bar
+spec:
+  replicas: 99
+  selector:
+    matchLabels:
+      io.kompose.service: bar
+  template:
+    metadata:
+      labels:
+        io.kompose.service: bar
+    spec:
+      containers:
+        - image: bar
+          name: bar
+      restartPolicy: Always
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: foo
+  name: foo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      io.kompose.service: foo
+  template:
+    metadata:
+      labels:
+        io.kompose.service: foo
+    spec:
+      containers:
+        - image: foo
+          name: foo
+      restartPolicy: Always
+
+

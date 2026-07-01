@@ -1,0 +1,5 @@
+services:
+  webapiapplication:
+    image: webapiapplication
+    labels:
+      kompose.service.type: NodePort

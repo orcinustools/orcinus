@@ -1,0 +1,11 @@
+
+services:
+  nginx:
+    labels:
+      kompose.container.kompose.controller.port.expose: true
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+    image: nginx

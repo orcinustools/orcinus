@@ -1,0 +1,5 @@
+services:
+  debian:
+    image: debian
+    ports:
+      - 80:80

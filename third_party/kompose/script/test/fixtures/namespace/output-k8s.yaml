@@ -1,0 +1,52 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: web
+  name: web
+  namespace: web
+spec:
+  ports:
+    - name: "80"
+      port: 80
+      targetPort: 80
+  selector:
+    io.kompose.service: web
+
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web
+  namespace: web
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: web
+  name: web
+  namespace: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: web
+  template:
+    metadata:
+      labels:
+        io.kompose.service: web
+    spec:
+      containers:
+        - image: nginx
+          name: web
+          ports:
+            - containerPort: 80
+              protocol: TCP
+      restartPolicy: Always
+
+

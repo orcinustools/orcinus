@@ -1,0 +1,80 @@
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    io.kompose.service: pgadmin
+  name: pgadmin
+spec:
+  replicas: 1
+  selector:
+    io.kompose.service: pgadmin
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        io.kompose.service: pgadmin
+    spec:
+      containers:
+        - env:
+            - name: PGADMIN_DEFAULT_EMAIL
+              value: dumb_pgadmin_user@email.com
+            - name: PGADMIN_DEFAULT_PASSWORD
+              value: pgadmin_password
+          image: ' '
+          name: pgadmin
+          volumeMounts:
+            - mountPath: /var/lib/pgadmin
+              name: pgadmin-data
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 1001
+      volumes:
+        - name: pgadmin-data
+          persistentVolumeClaim:
+            claimName: pgadmin-data
+  test: false
+  triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+          - pgadmin
+        from:
+          kind: ImageStreamTag
+          name: pgadmin:latest
+      type: ImageChange
+
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  labels:
+    io.kompose.service: pgadmin
+  name: pgadmin
+spec:
+  lookupPolicy:
+    local: false
+  tags:
+    - from:
+        kind: DockerImage
+        name: dpage/pgadmin4
+      name: latest
+      referencePolicy:
+        type: ""
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    io.kompose.service: pgadmin-data
+  name: pgadmin-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+

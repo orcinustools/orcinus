@@ -1,0 +1,4 @@
+services:
+  bar:
+    deploy:
+      replicas: 99
