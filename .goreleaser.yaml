@@ -1,0 +1,51 @@
+version: 2
+project_name: orcinus
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: orcinus
+    main: ./cmd/orcinus
+    binary: orcinus
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/biznetgio/orcinus/pkg/version.Version={{ .Version }}
+      - -X github.com/biznetgio/orcinus/pkg/version.GitCommit={{ .ShortCommit }}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: biznetgio
+    name: orcinus

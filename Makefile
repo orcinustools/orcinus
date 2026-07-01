@@ -7,7 +7,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.GitCommit=$(COMMIT)
 
-.PHONY: all build test e2e e2e-live tidy lint clean
+GORELEASER ?= goreleaser
+
+.PHONY: all build test e2e e2e-live tidy lint clean dist snapshot release-check
 
 all: build
 
@@ -22,13 +24,24 @@ test:
 e2e:
 	$(GO) test ./test/e2e/ -run TestConvert -v
 
-# Live single-node e2e: boots k3s in Docker and deploys to it.
-# Requires Docker (see test/e2e/live_test.go for the guard env var).
+# Live e2e: boots a real cluster in Docker and drives orcinus against it.
+# Requires Docker (see test/e2e/live_test.go for the guard env vars).
 e2e-live:
 	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLive -v -timeout 15m
 
 tidy:
 	$(GO) mod tidy
 
+# Validate the release config.
+release-check:
+	$(GORELEASER) check
+
+# Build multi-arch release artifacts locally (no publish) into ./dist.
+snapshot:
+	$(GORELEASER) release --snapshot --clean
+
+# Alias.
+dist: snapshot
+
 clean:
-	rm -rf bin
+	rm -rf bin dist

@@ -32,7 +32,7 @@ func newRmCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
+	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "namespace to remove from")
 	return cmd
 }

@@ -36,7 +36,7 @@ func newDeployCmd() *cobra.Command {
 	o := &deployOpts{}
 	cmd := &cobra.Command{
 		Use:   "deploy",
-		Short: "Auto-detect compose|manifest and deploy (CLI.md §3.3)",
+		Short: "Auto-detect compose|manifest and deploy (docs/USAGE.md §5.5)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDeploy(cmd, o)
 		},
@@ -50,7 +50,7 @@ func newDeployCmd() *cobra.Command {
 	f.StringVarP(&o.output, "output", "o", "", "also write converted manifests to this directory")
 	f.IntVar(&o.replicas, "replicas", 1, "default replicas when a service specifies none")
 	f.StringVar(&o.pvcSize, "pvc-size", "1Gi", "default PersistentVolumeClaim size")
-	f.StringVar(&o.kubeconfig, "kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
+	f.StringVar(&o.kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	f.BoolVar(&o.prune, "prune", true, "remove owned resources no longer present in the input")
 	f.BoolVar(&o.wait, "wait", false, "wait until workloads are ready")
 	return cmd
@@ -68,7 +68,7 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 	}
 
 	// No -f: discover a default project file in the current directory,
-	// preferring orcinus.yml (CLI.md §3.3).
+	// preferring orcinus.yml (docs/USAGE.md §3.5).
 	if len(o.files) == 0 {
 		found, err := discoverDefaultFile()
 		if err != nil {

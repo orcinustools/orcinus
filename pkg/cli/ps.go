@@ -40,7 +40,7 @@ func newPsCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
-	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
+	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "namespace (default: all namespaces)")
 	return cmd
 }

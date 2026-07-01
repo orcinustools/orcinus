@@ -5,7 +5,7 @@ A lightweight Kubernetes distribution that **natively understands
 to it, no hand-written Kubernetes manifests required.
 
 - **Architecture & design:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
-- **CLI specification:** [`docs/CLI.md`](./docs/CLI.md)
+- **CLI usage guide:** [`docs/USAGE.md`](./docs/USAGE.md)
 
 Orcinus embeds a lightweight Kubernetes runtime and **forks kompose**
 (`third_party/kompose`) so the compose→Kubernetes conversion is fully Docker
@@ -24,6 +24,19 @@ Verified compose→k8s mappings: controllers (Deployment/StatefulSet/DaemonSet),
 Service (ClusterIP/NodePort), Ingress, PVC, Secret extraction, replicas,
 resource limits/requests, healthcheck→liveness probe, multiple ports.
 
+## Install
+
+```bash
+# Latest release binary (Linux/macOS, amd64/arm64)
+curl -fsSL https://raw.githubusercontent.com/biznetgio/orcinus/main/install.sh | sh
+
+# Or with Go
+go install github.com/biznetgio/orcinus/cmd/orcinus@latest
+```
+
+Prebuilt archives + checksums are attached to each [GitHub release]
+(https://github.com/biznetgio/orcinus/releases), produced by goreleaser.
+
 ## Build
 
 The dev toolchain uses a user-local Go SDK.
@@ -32,6 +45,8 @@ The dev toolchain uses a user-local Go SDK.
 make build            # → bin/orcinus
 make test             # unit tests + offline conversion e2e
 make e2e-live         # boots a real single-node cluster and deploys to it
+make snapshot         # build multi-arch release artifacts into ./dist (goreleaser)
+make release-check    # validate the release config
 ```
 
 ## Usage

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: build
+        run: go build ./...
+      - name: vet
+        run: go vet ./...
+      - name: unit + offline e2e
+        run: go test ./... -timeout 5m
+
+  live-e2e:
+    name: live single-node e2e
+    runs-on: ubuntu-latest
+    # Live tests boot a real cluster in Docker; run on tags and on demand only.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: live e2e
+        env:
+          ORCINUS_E2E_LIVE: "1"
+          ORCINUS_E2E_DOCKER: "docker"
+        run: go test ./test/e2e/ -run TestLive -v -timeout 25m

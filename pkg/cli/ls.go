@@ -45,7 +45,7 @@ func newLsCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
-	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
+	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "namespace to list (default: all namespaces)")
 	cmd.Flags().BoolVarP(&allNamespaces, "all-namespaces", "A", true, "list across all namespaces")
 	return cmd

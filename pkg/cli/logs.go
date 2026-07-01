@@ -25,7 +25,7 @@ func newLogsCmd() *cobra.Command {
 			return applier.StreamServiceLogs(cmd.Context(), args[0], project, namespace, follow, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
+	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "namespace")
 	cmd.Flags().StringVar(&project, "project", "", "further scope to a project")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "follow the log stream")

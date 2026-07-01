@@ -1,5 +1,5 @@
 // Package detect classifies a YAML document as a Docker Compose file or a
-// Kubernetes manifest. This backs `orcinus deploy` auto-detection (CLI.md §3.3).
+// Kubernetes manifest. This backs `orcinus deploy` auto-detection (docs/USAGE.md §3.4).
 package detect
 
 import (
@@ -66,7 +66,7 @@ func SplitDocuments(data []byte) ([][]byte, error) {
 }
 
 // Classify inspects a single YAML document. A forced mode short-circuits
-// detection; ModeAuto applies the rules from CLI.md §3.3.
+// detection; ModeAuto applies the rules from docs/USAGE.md §3.4.
 func Classify(doc []byte, force Mode) (Kind, error) {
 	switch force {
 	case ModeCompose:

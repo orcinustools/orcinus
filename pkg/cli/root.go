@@ -1,4 +1,4 @@
-// Package cli wires the orcinus command tree (CLI.md §2).
+// Package cli wires the orcinus command tree (docs/USAGE.md §5).
 package cli
 
 import (
