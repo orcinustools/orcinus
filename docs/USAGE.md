@@ -29,8 +29,11 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.7 `ls`](#57-orcinus-ls)
   - [5.8 `ps`](#58-orcinus-ps)
   - [5.9 `logs`](#59-orcinus-logs)
-  - [5.10 `version`](#510-orcinus-version)
-  - [5.11 `completion`](#511-orcinus-completion)
+  - [5.10 `scale`](#510-orcinus-scale)
+  - [5.11 `autoscale`](#511-orcinus-autoscale)
+  - [5.12 `plugin`](#512-orcinus-plugin)
+  - [5.13 `version`](#513-orcinus-version)
+  - [5.14 `completion`](#514-orcinus-completion)
 - [6. Datastore](#6-datastore)
 - [Appendix A — Compose → Kubernetes mapping](#appendix-a--compose--kubernetes-mapping)
 - [Appendix B — `x-orcinus-*` extension reference](#appendix-b--x-orcinus--extension-reference)
@@ -55,9 +58,13 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | List apps | `orcinus ls` |
 | List an app's pods | `orcinus ps <project>` |
 | Tail logs | `orcinus logs <service>` |
+| Scale a service | `orcinus scale <service> <replicas>` |
+| Autoscale a service | `orcinus autoscale <service> --max N` |
+| Add a cluster add-on | `orcinus plugin install <name>` |
 
 Commands fall into two groups: **cluster lifecycle** (`init`, `join`, `status`,
-`down`) and **workloads** (`deploy`, `rm`, `ls`, `ps`, `logs`).
+`down`) and **workloads** (`deploy`, `rm`, `ls`, `ps`, `logs`, `scale`,
+`autoscale`, `plugin`).
 
 ---
 
@@ -360,7 +367,71 @@ orcinus logs web
 orcinus logs web -f --project myapp
 ```
 
-### 5.9b `orcinus plugin`
+### 5.10 `orcinus scale`
+
+Set the replica count of a service's Deployment or StatefulSet.
+
+```
+orcinus scale <service> <replicas> [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-n, --namespace <ns>` | `default` | Namespace |
+| `--kubeconfig <path>` | auto | Target cluster |
+
+```bash
+orcinus scale web 3            # scale the web service to 3 replicas
+orcinus scale db 1 -n staging  # in the "staging" namespace
+```
+
+Output: `scaled Deployment/web to 3 replicas`.
+
+### 5.11 `orcinus autoscale`
+
+Create or update a **HorizontalPodAutoscaler** (HPA) for a service. Orcinus
+clusters ship with a working metrics-server (auto-enabled by `cluster init`), so
+HPAs get metrics out of the box. The workload's containers need **resource
+requests** for percentage-based targets to work.
+
+```
+orcinus autoscale <service> --max <n> [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--min <n>` | `1` | Minimum replicas |
+| `--max <n>` | — (**required**) | Maximum replicas |
+| `--cpu <pct>` | `80` if no metric set | Target average CPU utilization % |
+| `--memory <pct>` | — | Target average memory utilization % |
+| `-n, --namespace <ns>` | `default` | Namespace |
+| `--kubeconfig <path>` | auto | Target cluster |
+
+```bash
+orcinus autoscale web --min 2 --max 8 --cpu 70        # scale on 70% CPU
+orcinus autoscale worker --max 5 --memory 75          # scale on 75% memory
+```
+
+The HPA targets the service's Deployment or StatefulSet. It is created if absent
+and updated in place if it already exists. Inspect it with
+`orcinus kubectl get hpa` or your own `kubectl`.
+
+You can also declare autoscaling directly in the compose file, so it is created
+on `deploy` (see [Appendix B](#appendix-b--x-orcinus--extension-reference)):
+
+```yaml
+services:
+  web:
+    image: myapp
+    deploy:
+      resources:
+        reservations: { cpus: "0.1", memory: 64M }   # requests are needed for % HPA
+    x-orcinus-autoscale-min: 2
+    x-orcinus-autoscale-max: 8
+    x-orcinus-autoscale-cpu: 70
+```
+
+### 5.12 `orcinus plugin`
 
 Manage cluster add-ons (see [`PLUGINS.md`](./PLUGINS.md)).
 
@@ -380,7 +451,7 @@ orcinus plugin remove metrics-server
 ```
 
 Catalog: `cert-manager`, `ingress-nginx`, `metrics-server`, `monitoring`,
-`storage` (providers: `local-path`/`longhorn`/`nfs`/`minio`). See
+`storage` (providers: `local-path`/`longhorn`/`nfs`/`minio`/`rook-ceph`). See
 [`PLUGINS.md`](./PLUGINS.md).
 
 ```bash
@@ -391,37 +462,7 @@ orcinus plugin install storage --provider nfs --nfs-server 10.0.0.9 --nfs-path /
 
 For fault-tolerant storage across nodes, see [`HA-STORAGE.md`](./HA-STORAGE.md).
 
-### 5.9c `orcinus scale` / `orcinus autoscale`
-
-Scale a service manually, or set up horizontal autoscaling (HPA). Orcinus clusters
-ship with a working metrics-server (auto-enabled by `cluster init`), so HPAs get
-metrics out of the box.
-
-```bash
-orcinus scale web 3                                  # set replicas to 3
-orcinus autoscale web --min 2 --max 8 --cpu 70       # HPA on 70% CPU
-orcinus autoscale worker --min 1 --max 5 --memory 75 # HPA on memory
-```
-
-`scale <service> <replicas>` targets the service's Deployment or StatefulSet.
-`autoscale <service>` creates/updates a HorizontalPodAutoscaler (`--min`/`--max`,
-`--cpu`/`--memory` utilization %). Both take `-n`/`--kubeconfig`.
-
-You can also declare autoscaling in the compose file (see Appendix B):
-
-```yaml
-services:
-  web:
-    image: myapp
-    deploy:
-      resources:
-        reservations: { cpus: "0.1", memory: 64M }   # requests are needed for % HPA
-    x-orcinus-autoscale-min: 2
-    x-orcinus-autoscale-max: 8
-    x-orcinus-autoscale-cpu: 70
-```
-
-### 5.10 `orcinus version`
+### 5.13 `orcinus version`
 
 Print the orcinus version, git commit, and the embedded conversion-engine ref.
 
@@ -429,7 +470,7 @@ Print the orcinus version, git commit, and the embedded conversion-engine ref.
 orcinus version
 ```
 
-### 5.11 `orcinus completion`
+### 5.14 `orcinus completion`
 
 Generate a shell completion script (bash, zsh, fish, powershell).
 
