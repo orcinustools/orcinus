@@ -27,6 +27,10 @@ type Options struct {
 	Email      string // cert-manager: ACME account email
 	Staging    bool   // cert-manager: use Let's Encrypt staging
 
+	// cert-manager DNS-01 (for wildcard certs)
+	DNSProvider string // e.g. "cloudflare"
+	DNSToken    string // API token for the DNS provider
+
 	// storage plugin options
 	Provider  string // e.g. local-path | longhorn | nfs | minio | rook-ceph
 	Size      string // volume/PVC size (e.g. 10Gi)
@@ -348,7 +352,40 @@ func certManagerIssuer(o Options) ([]runtime.Object, error) {
 			},
 		},
 	}}
-	return []runtime.Object{issuer}, nil
+	objs := []runtime.Object{issuer}
+
+	// DNS-01 issuer for wildcard certs (currently Cloudflare).
+	if o.DNSProvider == "cloudflare" && o.DNSToken != "" {
+		tokenSecret := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "v1", "kind": "Secret",
+			"metadata":   map[string]interface{}{"name": "cloudflare-api-token", "namespace": "cert-manager"},
+			"type":       "Opaque",
+			"stringData": map[string]interface{}{"api-token": o.DNSToken},
+		}}
+		dnsIssuer := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "cert-manager.io/v1",
+			"kind":       "ClusterIssuer",
+			"metadata":   map[string]interface{}{"name": "letsencrypt-dns"},
+			"spec": map[string]interface{}{
+				"acme": map[string]interface{}{
+					"server":              server,
+					"email":               o.Email,
+					"privateKeySecretRef": map[string]interface{}{"name": "letsencrypt-dns-account"},
+					"solvers": []interface{}{
+						map[string]interface{}{
+							"dns01": map[string]interface{}{
+								"cloudflare": map[string]interface{}{
+									"apiTokenSecretRef": map[string]interface{}{"name": "cloudflare-api-token", "key": "api-token"},
+								},
+							},
+						},
+					},
+				},
+			},
+		}}
+		objs = append(objs, tokenSecret, dnsIssuer)
+	}
+	return objs, nil
 }
 
 // --- state ---

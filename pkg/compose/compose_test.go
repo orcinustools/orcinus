@@ -395,6 +395,32 @@ services:
 	}
 }
 
+func TestConvertIngressCustomCert(t *testing.T) {
+	const f = `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: app.example.com
+    x-orcinus-tls-secret: my-cert
+`
+	for _, o := range convertString(t, f) {
+		ing, ok := o.(*networkingv1.Ingress)
+		if !ok {
+			continue
+		}
+		if len(ing.Spec.TLS) == 0 || ing.Spec.TLS[0].SecretName != "my-cert" {
+			t.Fatalf("expected TLS secret my-cert, got %+v", ing.Spec.TLS)
+		}
+		if _, has := ing.Annotations["cert-manager.io/cluster-issuer"]; has {
+			t.Errorf("custom cert should NOT set a cert-manager annotation")
+		}
+		return
+	}
+	t.Fatal("no Ingress found")
+}
+
 func TestConvertIngress(t *testing.T) {
 	objs := convertFixture(t)
 	for _, o := range objs {

@@ -1,0 +1,18 @@
+# Horizontal autoscaling (HPA) — see docs/DEPLOYMENT.md §5.
+#   orcinus deploy -f orcinus.yml
+#
+# Percentage targets need resource *requests* (reservations) and a metrics
+# source — orcinus clusters ship a working metrics-server, so this works
+# out of the box. You can also scale by hand: `orcinus scale api 3`.
+services:
+  api:
+    image: nginx:1.27
+    ports:
+      - "80"
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+        reservations: { cpus: "0.1", memory: 64M }   # required for % HPA
+    x-orcinus-autoscale-min: 2
+    x-orcinus-autoscale-max: 8
+    x-orcinus-autoscale-cpu: 70

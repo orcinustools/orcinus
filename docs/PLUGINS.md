@@ -164,7 +164,8 @@ orcinus deploy --wait
 
 cert-manager solves the ACME HTTP-01 challenge through Traefik and issues the
 cert into `web-tls`; Traefik then serves `https://app.example.com` with a trusted
-certificate. Requirements: public DNS for the host and inbound 80/443.
+certificate. Requirements: public DNS for the host and inbound 80/443. Runnable
+example: [`examples/ingress-tls`](../examples/ingress-tls/orcinus.yml).
 
 > Verified against a live domain: issuer `O = Let's Encrypt`, subject
 > `CN = <your host>`, served over HTTPS by Traefik.

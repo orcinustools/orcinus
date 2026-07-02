@@ -1,0 +1,18 @@
+# A web app on a public domain with an automatic Let's Encrypt certificate —
+# the easy way (three x-orcinus-* lines). See docs/PLUGINS.md.
+#
+# Prerequisites:
+#   - the cluster publishes ingress ports:  orcinus cluster init --http-port 80 --https-port 443
+#   - cert-manager installed:               orcinus plugin install cert-manager --email you@example.com
+#   - public DNS for the host → your cluster, and inbound 80/443
+#
+# Then:
+#   orcinus deploy -f orcinus.yml
+services:
+  site:
+    image: nginxdemos/hello:latest
+    ports:
+      - "80"
+    x-orcinus-expose: ingress
+    x-orcinus-host: app.example.com    # ← change to your domain
+    x-orcinus-tls: letsencrypt

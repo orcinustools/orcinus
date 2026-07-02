@@ -6,6 +6,10 @@ Swarm-native `deploy.update_config`, `recreate`, and progressive delivery
 
 Reference for all keys: [`USAGE.md`](./USAGE.md). Plugins: [`PLUGINS.md`](./PLUGINS.md).
 
+Runnable examples: [`examples/deploy-strategies`](../examples/deploy-strategies/orcinus.yml)
+(update_config + recreate), [`examples/autoscale`](../examples/autoscale/orcinus.yml),
+[`examples/rollout`](../examples/rollout/orcinus.yml) (canary/blue-green).
+
 ---
 
 ## Table of Contents

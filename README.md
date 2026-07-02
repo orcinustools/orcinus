@@ -10,6 +10,7 @@ to it, no hand-written Kubernetes manifests required.
 - **Cluster setup (single / multi-node / HA):** [`docs/CLUSTER.md`](./docs/CLUSTER.md)
 - **Plugins & cluster add-ons:** [`docs/PLUGINS.md`](./docs/PLUGINS.md)
 - **High-availability storage:** [`docs/HA-STORAGE.md`](./docs/HA-STORAGE.md)
+- **Examples:** [`examples/`](./examples/README.md) (WordPress, Redis, monitoring, autoscale, rollout, ingress+TLS, …)
 
 Orcinus embeds a lightweight Kubernetes runtime and **forks kompose**
 (`third_party/kompose`) so the compose→Kubernetes conversion is fully Docker

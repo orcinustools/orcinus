@@ -168,6 +168,31 @@ func TestDeployFromURL(t *testing.T) {
 	}
 }
 
+// TestExamplesRender dry-run-renders every examples/**/orcinus.yml so a broken
+// example is caught in CI (no cluster needed).
+func TestExamplesRender(t *testing.T) {
+	root := repoRoot()
+	matches, _ := filepath.Glob(filepath.Join(root, "examples", "*", "orcinus.yml"))
+	matches = append(matches, filepath.Join(root, "examples", "orcinus.yml"))
+	if len(matches) < 5 {
+		t.Fatalf("expected several examples, found %d", len(matches))
+	}
+	for _, f := range matches {
+		name := filepath.Base(filepath.Dir(f))
+		t.Run(name, func(t *testing.T) {
+			cmd := exec.Command(orcinusBin, "deploy", "-f", f, "--dry-run", "--project", "ex")
+			cmd.Dir = root
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("render %s failed: %v\n%s", f, err, out)
+			}
+			if !contains(string(out), "kind:") {
+				t.Errorf("%s produced no manifests", f)
+			}
+		})
+	}
+}
+
 func keys(m map[string]bool) []string {
 	var out []string
 	for k := range m {

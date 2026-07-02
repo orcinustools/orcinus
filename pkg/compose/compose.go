@@ -405,14 +405,20 @@ func applyIngressConfig(objects []runtime.Object, cfgs map[string]ingressCfg) {
 			c := cfg.Class
 			ing.Spec.IngressClassName = &c
 		}
-		if cfg.TLS != "" {
+		switch {
+		case cfg.TLSSecret != "":
+			// Custom/BYO cert: use an existing TLS Secret, no cert-manager.
+			ing.Spec.TLS = []networkingv1.IngressTLS{{
+				Hosts:      []string{ingressHost(ing)},
+				SecretName: cfg.TLSSecret,
+			}}
+		case cfg.TLS != "":
 			if ing.Annotations == nil {
 				ing.Annotations = map[string]string{}
 			}
 			ing.Annotations["cert-manager.io/cluster-issuer"] = cfg.TLS
-			host := ingressHost(ing)
 			ing.Spec.TLS = []networkingv1.IngressTLS{{
-				Hosts:      []string{host},
+				Hosts:      []string{ingressHost(ing)},
 				SecretName: ing.Name + "-tls",
 			}}
 		}

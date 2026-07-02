@@ -126,6 +126,8 @@ func pluginFlags(cmd *cobra.Command, o *plugin.Options) {
 	f.StringVar(&o.Kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	f.StringVar(&o.Email, "email", "", "ACME account email (cert-manager)")
 	f.BoolVar(&o.Staging, "staging", false, "use Let's Encrypt staging (cert-manager)")
+	f.StringVar(&o.DNSProvider, "dns", "", "cert-manager DNS-01 provider for wildcard certs (cloudflare)")
+	f.StringVar(&o.DNSToken, "dns-token", "", "API token for --dns provider")
 	f.StringVar(&o.Provider, "provider", "", "provider variant (storage: local-path|longhorn|nfs|minio|rook-ceph)")
 	f.StringVar(&o.Size, "size", "", "volume size (e.g. 10Gi) — storage: minio")
 	f.StringVar(&o.NFSServer, "nfs-server", "", "NFS server address (storage: nfs)")

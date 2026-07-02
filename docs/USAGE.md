@@ -308,7 +308,9 @@ services:
 
 **Full guide → [`DEPLOYMENT.md`](./DEPLOYMENT.md)** (update_config mapping,
 recreate, canary/blue-green, and what isn't mapped). The relevant `x-orcinus-*`
-keys are in [Appendix B](#appendix-b--x-orcinus--extension-reference).
+keys are in [Appendix B](#appendix-b--x-orcinus--extension-reference). Examples:
+[`examples/deploy-strategies`](../examples/deploy-strategies/orcinus.yml),
+[`examples/rollout`](../examples/rollout/orcinus.yml).
 
 ### 5.6 `orcinus rm`
 
@@ -434,8 +436,8 @@ orcinus autoscale worker --max 5 --memory 75          # scale on 75% memory
 ```
 
 The HPA targets the service's Deployment or StatefulSet. It is created if absent
-and updated in place if it already exists. Inspect it with
-`orcinus kubectl get hpa` or your own `kubectl`.
+and updated in place if it already exists. Inspect it with `kubectl get hpa`.
+Example: [`examples/autoscale`](../examples/autoscale/orcinus.yml).
 
 You can also declare autoscaling directly in the compose file, so it is created
 on `deploy` (see [Appendix B](#appendix-b--x-orcinus--extension-reference)):

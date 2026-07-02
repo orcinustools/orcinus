@@ -18,6 +18,7 @@ const (
 	extSecret     = "x-orcinus-secret" // list (or scalar) of env var names to store in a Secret
 
 	extTLS          = "x-orcinus-tls"           // cert-manager ClusterIssuer name (e.g. "letsencrypt")
+	extTLSSecret    = "x-orcinus-tls-secret"    // existing TLS Secret (custom/BYO cert)
 	extPath         = "x-orcinus-path"          // ingress path (default "/")
 	extPort         = "x-orcinus-port"          // service port the ingress routes to
 	extIngressClass = "x-orcinus-ingress-class" // ingress class (e.g. traefik, nginx)
@@ -44,10 +45,11 @@ const (
 
 // ingressCfg holds ingress hints applied to a service's Ingress after transform.
 type ingressCfg struct {
-	TLS   string // ClusterIssuer name; enables TLS when non-empty
-	Path  string
-	Port  int
-	Class string
+	TLS       string // ClusterIssuer name; enables cert-manager TLS when non-empty
+	TLSSecret string // existing TLS Secret name (custom/BYO cert); wins over TLS
+	Path      string
+	Port      int
+	Class     string
 }
 
 // autoscaleCfg holds HPA hints for a service.
@@ -141,6 +143,9 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		var ic ingressCfg
 		if v, ok := stringExt(svc[extTLS]); ok {
 			ic.TLS = v
+		}
+		if v, ok := stringExt(svc[extTLSSecret]); ok {
+			ic.TLSSecret = v
 		}
 		if v, ok := stringExt(svc[extPath]); ok {
 			ic.Path = v

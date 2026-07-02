@@ -1,0 +1,20 @@
+# Deployment update strategies — see docs/DEPLOYMENT.md.
+#   orcinus deploy -f orcinus.yml
+services:
+  # Swarm-native deploy.update_config → Kubernetes rolling update.
+  web:
+    image: nginx:1.27
+    ports:
+      - "80"
+    deploy:
+      update_config:
+        order: start-first     # start new before stopping old (no capacity dip)
+        parallelism: 2
+        delay: 10s             # → minReadySeconds
+        monitor: 60s           # → progressDeadlineSeconds
+
+  # recreate: stop all old pods before starting new (never two versions at once).
+  migrator:
+    image: busybox:1.36
+    command: ["sh", "-c", "echo running migration; sleep 3600"]
+    x-orcinus-strategy: recreate

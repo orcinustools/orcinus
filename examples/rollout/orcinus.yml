@@ -1,0 +1,19 @@
+# Progressive delivery (canary & blue-green) — see docs/DEPLOYMENT.md.
+#   orcinus deploy -f orcinus.yml
+#
+# Each service becomes an Argo Rollout instead of a Deployment; orcinus
+# auto-installs the argo-rollouts plugin on first use. Observe with
+# `kubectl get rollout`. Canary/blue-green behavior applies on the *next*
+# update (new image), not the first deploy.
+services:
+  web:
+    image: nginx:1.27
+    ports:
+      - "80"
+    x-orcinus-rollout: canary       # 50% → pause 15s → 100%
+
+  api:
+    image: nginx:1.27
+    ports:
+      - "8080"
+    x-orcinus-rollout: bluegreen    # bring up green, then flip the Service
