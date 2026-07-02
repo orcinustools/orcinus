@@ -460,6 +460,7 @@ Manage cluster add-ons (see [`PLUGINS.md`](./PLUGINS.md)).
 orcinus plugin list
 orcinus plugin info <name>
 orcinus plugin install <name> [--email ...] [--staging]
+orcinus plugin install --profile web|observability
 orcinus plugin remove <name>
 ```
 
@@ -472,8 +473,9 @@ orcinus plugin remove metrics-server
 ```
 
 Catalog: `cert-manager`, `ingress-nginx`, `metrics-server`, `monitoring`,
-`argo-rollouts`, `storage` (providers: `local-path`/`longhorn`/`nfs`/`minio`/`rook-ceph`).
-See [`PLUGINS.md`](./PLUGINS.md).
+`argo-rollouts`, `dashboard`, `registry`, `grafana`, `storage` (providers:
+`local-path`/`longhorn`/`nfs`/`minio`/`rook-ceph`). Versions are pinned. Install a
+set with `--profile web|observability`. See [`PLUGINS.md`](./PLUGINS.md).
 
 ```bash
 orcinus plugin install storage --provider minio --size 20Gi

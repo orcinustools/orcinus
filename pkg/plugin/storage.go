@@ -72,12 +72,12 @@ func buildStorage(o Options) (built, error) {
 	case "rook-ceph":
 		return built{
 			Manifests: []string{
-				"https://raw.githubusercontent.com/rook/rook/release-1.15/deploy/examples/crds.yaml",
-				"https://raw.githubusercontent.com/rook/rook/release-1.15/deploy/examples/common.yaml",
-				"https://raw.githubusercontent.com/rook/rook/release-1.15/deploy/examples/operator.yaml",
+				"https://raw.githubusercontent.com/rook/rook/v1.15.4/deploy/examples/crds.yaml",
+				"https://raw.githubusercontent.com/rook/rook/v1.15.4/deploy/examples/common.yaml",
+				"https://raw.githubusercontent.com/rook/rook/v1.15.4/deploy/examples/operator.yaml",
 			},
 			WaitFor:     []WaitTarget{{Namespace: "rook-ceph", Name: "rook-ceph-operator"}},
-			PostObjects: []runtime.Object{cephCluster()}, // needs the CRD from crds.yaml
+			PostObjects: cephObjects(o), // need CRDs from crds.yaml
 		}, nil
 	default:
 		return built{}, fmt.Errorf("unknown storage provider %q (want: local-path|longhorn|nfs|minio|rook-ceph)", o.Provider)
@@ -101,9 +101,19 @@ func longhornStorageClass(replicas int) runtime.Object {
 	}
 }
 
-// cephCluster builds a minimal Rook CephCluster CR (uses all nodes/devices).
-func cephCluster() runtime.Object {
-	return &unstructured.Unstructured{Object: map[string]interface{}{
+// cephObjects builds a configurable Rook CephCluster + a replicated CephBlockPool
+// and a StorageClass ("ceph-block") from the given options.
+func cephObjects(o Options) []runtime.Object {
+	// Device selection: a filter narrows disks; otherwise use all devices.
+	storage := map[string]interface{}{"useAllNodes": true}
+	if o.CephDeviceFilter != "" {
+		storage["useAllDevices"] = false
+		storage["deviceFilter"] = o.CephDeviceFilter
+	} else {
+		storage["useAllDevices"] = true
+	}
+
+	cluster := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "ceph.rook.io/v1",
 		"kind":       "CephCluster",
 		"metadata":   map[string]interface{}{"name": "rook-ceph", "namespace": "rook-ceph"},
@@ -113,9 +123,49 @@ func cephCluster() runtime.Object {
 			"mon":             map[string]interface{}{"count": int64(3), "allowMultiplePerNode": false},
 			"mgr":             map[string]interface{}{"count": int64(2)},
 			"dashboard":       map[string]interface{}{"enabled": true},
-			"storage":         map[string]interface{}{"useAllNodes": true, "useAllDevices": true},
+			"storage":         storage,
 		},
 	}}
+
+	size := int64(o.Replicas)
+	if size < 1 {
+		size = 3
+	}
+	failureDomain := o.CephFailureDomain
+	if failureDomain == "" {
+		failureDomain = "host"
+	}
+	pool := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "ceph.rook.io/v1",
+		"kind":       "CephBlockPool",
+		"metadata":   map[string]interface{}{"name": "replicapool", "namespace": "rook-ceph"},
+		"spec": map[string]interface{}{
+			"failureDomain": failureDomain,
+			"replicated":    map[string]interface{}{"size": size},
+		},
+	}}
+
+	expand := true
+	sc := &storagev1.StorageClass{
+		TypeMeta:             metav1.TypeMeta{APIVersion: "storage.k8s.io/v1", Kind: "StorageClass"},
+		ObjectMeta:           metav1.ObjectMeta{Name: "ceph-block"},
+		Provisioner:          "rook-ceph.rbd.csi.ceph.com",
+		AllowVolumeExpansion: &expand,
+		Parameters: map[string]string{
+			"clusterID":     "rook-ceph",
+			"pool":          "replicapool",
+			"imageFormat":   "2",
+			"imageFeatures": "layering",
+			"csi.storage.k8s.io/provisioner-secret-name":       "rook-csi-rbd-provisioner",
+			"csi.storage.k8s.io/provisioner-secret-namespace":  "rook-ceph",
+			"csi.storage.k8s.io/controller-expand-secret-name": "rook-csi-rbd-provisioner",
+			"csi.storage.k8s.io/controller-expand-secret-namespace": "rook-ceph",
+			"csi.storage.k8s.io/node-stage-secret-name":             "rook-csi-rbd-node",
+			"csi.storage.k8s.io/node-stage-secret-namespace":        "rook-ceph",
+			"csi.storage.k8s.io/fstype":                             "ext4",
+		},
+	}
+	return []runtime.Object{cluster, pool, sc}
 }
 
 func ns(name string) *corev1.Namespace {

@@ -28,11 +28,15 @@ type Options struct {
 	Staging    bool   // cert-manager: use Let's Encrypt staging
 
 	// storage plugin options
-	Provider  string // e.g. local-path | longhorn | nfs | minio
+	Provider  string // e.g. local-path | longhorn | nfs | minio | rook-ceph
 	Size      string // volume/PVC size (e.g. 10Gi)
-	Replicas  int    // minio: >1 = distributed (HA) mode
+	Replicas  int    // minio: >1 = distributed; longhorn/rook: replica count
 	NFSServer string // nfs provider
 	NFSPath   string // nfs provider
+
+	// rook-ceph tuning
+	CephDeviceFilter  string // regex of devices to use (e.g. "^sd[b-d]")
+	CephFailureDomain string // pool failure domain (host|osd|rack); default host
 }
 
 // WaitTarget is a Deployment to wait for before post-install steps.
@@ -53,9 +57,11 @@ type built struct {
 type Spec struct {
 	Name        string
 	Description string
-	Providers   []string // for `plugin info`; storage/ingress variants
-	Namespace   string   // install namespace (created first)
-	Manifests   []string // static URLs (when Build is nil)
+	Version     string           // pinned upstream version (informational)
+	Providers   []string         // for `plugin info`; storage/ingress variants
+	Namespace   string           // install namespace (created first)
+	Manifests   []string         // static URLs (when Build is nil)
+	Objects     []runtime.Object // static inline objects (when Build is nil)
 	WaitFor     []WaitTarget
 	PostInstall func(o Options) ([]runtime.Object, error)
 	// Build resolves manifests/objects dynamically from options (overrides
@@ -69,7 +75,7 @@ func resolve(spec Spec, o Options) (built, error) {
 	if spec.Build != nil {
 		return spec.Build(o)
 	}
-	return built{Namespace: spec.Namespace, Manifests: spec.Manifests, WaitFor: spec.WaitFor}, nil
+	return built{Namespace: spec.Namespace, Manifests: spec.Manifests, Objects: spec.Objects, WaitFor: spec.WaitFor}, nil
 }
 
 // Registry is the built-in plugin catalog.
@@ -77,7 +83,8 @@ var Registry = map[string]Spec{
 	"cert-manager": {
 		Name:        "cert-manager",
 		Description: "TLS certificate automation (+ a Let's Encrypt ClusterIssuer)",
-		Manifests:   []string{"https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml"},
+		Version:     "v1.16.2",
+		Manifests:   []string{"https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml"},
 		WaitFor: []WaitTarget{
 			{Namespace: "cert-manager", Name: "cert-manager-webhook"},
 			{Namespace: "cert-manager", Name: "cert-manager"},
@@ -88,20 +95,49 @@ var Registry = map[string]Spec{
 	"ingress-nginx": {
 		Name:        "ingress-nginx",
 		Description: "NGINX ingress controller (ingress class: nginx)",
-		Manifests:   []string{"https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml"},
+		Version:     "controller-v1.11.3",
+		Manifests:   []string{"https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/cloud/deploy.yaml"},
 	},
 	"metrics-server": {
 		Name:        "metrics-server",
 		Description: "Cluster metrics (kubectl top, HPA)",
-		Manifests:   []string{"https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"},
+		Version:     "v0.7.2",
+		Manifests:   []string{"https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml"},
 	},
 	"argo-rollouts": {
 		Name:        "argo-rollouts",
 		Description: "Progressive delivery — canary & blue-green (Argo Rollouts)",
+		Version:     "v1.7.2",
 		Namespace:   "argo-rollouts",
-		Manifests:   []string{"https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml"},
+		Manifests:   []string{"https://github.com/argoproj/argo-rollouts/releases/download/v1.7.2/install.yaml"},
 		WaitFor:     []WaitTarget{{Namespace: "argo-rollouts", Name: "argo-rollouts"}},
 		Notes:       "Use x-orcinus-rollout: canary|bluegreen on a service.",
+	},
+	"dashboard": {
+		Name:        "dashboard",
+		Description: "Kubernetes Dashboard (web UI)",
+		Version:     "v2.7.0",
+		Manifests:   []string{"https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml"},
+		WaitFor:     []WaitTarget{{Namespace: "kubernetes-dashboard", Name: "kubernetes-dashboard"}},
+		Notes:       "Access via `kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard 8443:443`.",
+	},
+	"registry": {
+		Name:        "registry",
+		Description: "In-cluster image registry (registry:2)",
+		Version:     "2",
+		Namespace:   "orcinus-registry",
+		Objects:     registryObjects(),
+		WaitFor:     []WaitTarget{{Namespace: "orcinus-registry", Name: "registry"}},
+		Notes:       "Reachable in-cluster at registry.orcinus-registry.svc:5000.",
+	},
+	"grafana": {
+		Name:        "grafana",
+		Description: "Grafana dashboards (point at Prometheus)",
+		Version:     "11.2.0",
+		Namespace:   "orcinus-monitoring",
+		Objects:     grafanaObjects(),
+		WaitFor:     []WaitTarget{{Namespace: "orcinus-monitoring", Name: "grafana"}},
+		Notes:       "Admin: admin/admin (change it). Add Prometheus data source manually.",
 	},
 	"monitoring": {
 		Name:        "monitoring",
@@ -215,6 +251,31 @@ func Get(name string) (Spec, bool) {
 	return s, ok
 }
 
+// Profiles bundle a set of plugins installed together.
+var Profiles = map[string][]string{
+	"web":           {"cert-manager", "ingress-nginx"},
+	"observability": {"metrics-server", "monitoring", "grafana"},
+}
+
+// InstallProfile installs every plugin in a named profile, in order.
+func InstallProfile(ctx context.Context, name string, o Options) error {
+	names, ok := Profiles[name]
+	if !ok {
+		avail := make([]string, 0, len(Profiles))
+		for k := range Profiles {
+			avail = append(avail, k)
+		}
+		sort.Strings(avail)
+		return fmt.Errorf("unknown profile %q (available: %v)", name, avail)
+	}
+	for _, n := range names {
+		if err := Install(ctx, n, o); err != nil {
+			return fmt.Errorf("profile %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // Remove deletes what a plugin installed (post-install objects, then manifests)
 // and unrecords it. Manifests are re-fetched to know what to delete.
 func Remove(ctx context.Context, name string, o Options) error {
@@ -254,6 +315,10 @@ func Remove(ctx context.Context, name string, o Options) error {
 		if err := applier.DeleteObjects(ctx, objs); err != nil {
 			return err
 		}
+	}
+	// Namespace cleanup: remove the install namespace we created (if any).
+	if plan.Namespace != "" {
+		_ = applier.DeleteObjects(ctx, []runtime.Object{namespaceObj(plan.Namespace)})
 	}
 	return unrecord(name)
 }

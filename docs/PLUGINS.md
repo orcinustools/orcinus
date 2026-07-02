@@ -69,9 +69,27 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `metrics-server` | — | metrics-server (`kubectl top`, HPA) |
 | `monitoring` | — | Prometheus Operator (CRDs + operator) |
 | `argo-rollouts` | — | Argo Rollouts controller for canary/blue-green (`x-orcinus-rollout`) |
-| `storage` | `--provider`, `--size`, `--nfs-server`, `--nfs-path` | Storage backends — see below |
+| `dashboard` | — | Kubernetes Dashboard (web UI) |
+| `registry` | — | In-cluster image registry (`registry.orcinus-registry.svc:5000`) |
+| `grafana` | — | Grafana (point at Prometheus) |
+| `storage` | `--provider`, `--size`, `--replicas`, `--nfs-server`, `--nfs-path`, `--ceph-*` | Storage backends — see below |
 
-`cert-manager` waits for its webhook to be ready before creating the issuer.
+All plugin versions are **pinned** (see `orcinus plugin info <name>`), so installs
+are reproducible. `cert-manager` waits for its webhook before creating the issuer.
+
+### Profiles
+
+Install a common set at once with `--profile`:
+
+```bash
+orcinus plugin install --profile web --email me@example.com   # cert-manager + ingress-nginx
+orcinus plugin install --profile observability                # metrics-server + monitoring + grafana
+```
+
+| Profile | Plugins |
+|---|---|
+| `web` | `cert-manager`, `ingress-nginx` |
+| `observability` | `metrics-server`, `monitoring`, `grafana` |
 
 ### Storage providers
 
@@ -83,7 +101,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `longhorn` | distributed block (HA) | `orcinus plugin install storage --provider longhorn [--replicas 3]` |
 | `nfs` | shared file (RWX) | `orcinus plugin install storage --provider nfs --nfs-server 10.0.0.9 --nfs-path /export` |
 | `minio` | object (S3-compatible) | `orcinus plugin install storage --provider minio [--replicas 4] [--size 20Gi]` |
-| `rook-ceph` | block+file+object (HA) | `orcinus plugin install storage --provider rook-ceph` |
+| `rook-ceph` | block+file+object (HA) | `orcinus plugin install storage --provider rook-ceph [--ceph-device-filter '^sd[b-d]'] [--ceph-failure-domain host] [--replicas 3]` |
 
 - **nfs** deploys the nfs-subdir-external-provisioner + a `nfs` StorageClass
   backed by your existing NFS server (supports `ReadWriteMany`).
@@ -94,8 +112,10 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
   auto-spread across nodes (anti-affinity + topology spread).
 - **longhorn** needs `open-iscsi` on every node; replicates volumes across nodes.
   `--replicas N` adds a `longhorn-ha` StorageClass with that replica count.
-- **rook-ceph** installs the Rook operator + a `CephCluster` (block/file/object);
-  needs multiple nodes with raw disks.
+- **rook-ceph** installs the Rook operator + a `CephCluster`, a replicated
+  `CephBlockPool`, and a `ceph-block` StorageClass. Tune with `--ceph-device-filter`
+  (which disks), `--ceph-failure-domain` (`host`/`osd`/`rack`), and `--replicas`
+  (pool replica size). Needs multiple nodes with raw disks.
 
 Remove with the same provider, e.g. `orcinus plugin remove storage --provider minio`.
 
@@ -188,7 +208,7 @@ already works, the registry points at upstream release URLs directly.
 
 ## Roadmap
 
-- Pinned plugin versions and richer `remove` (namespace cleanup).
-- More catalog entries: a local registry, a dashboard, a Grafana bundle.
-- Profiles: install a set at once (e.g. `--profile web` = ingress + cert-manager).
-- Configurable Rook `CephCluster` (device filters, failure domains, replica size).
+- Custom profiles defined by the user (not just the built-in `web` /
+  `observability`).
+- Upgrade flow (`plugin upgrade`) to move a plugin to a newer pinned version.
+- Health/status in `plugin list` (installed **and** ready).

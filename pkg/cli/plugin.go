@@ -32,6 +32,9 @@ func newPluginInfoCmd() *cobra.Command {
 			fmt.Fprintf(out, "name:        %s\n", s.Name)
 			fmt.Fprintf(out, "description: %s\n", s.Description)
 			fmt.Fprintf(out, "installed:   %t\n", plugin.Installed(s.Name))
+			if s.Version != "" {
+				fmt.Fprintf(out, "version:     %s\n", s.Version)
+			}
 			if len(s.Providers) > 0 {
 				fmt.Fprintf(out, "providers:   %v\n", s.Providers)
 			}
@@ -89,11 +92,22 @@ func newPluginListCmd() *cobra.Command {
 
 func newPluginInstallCmd() *cobra.Command {
 	var o plugin.Options
+	var profile string
 	cmd := &cobra.Command{
-		Use:   "install <name>",
-		Short: "Install a plugin into the cluster",
-		Args:  cobra.ExactArgs(1),
+		Use:   "install [name]",
+		Short: "Install a plugin (or a --profile set) into the cluster",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if profile != "" {
+				if err := plugin.InstallProfile(cmd.Context(), profile, o); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "profile %q installed\n", profile)
+				return nil
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("provide a plugin name or --profile")
+			}
 			if err := plugin.Install(cmd.Context(), args[0], o); err != nil {
 				return err
 			}
@@ -102,6 +116,7 @@ func newPluginInstallCmd() *cobra.Command {
 		},
 	}
 	pluginFlags(cmd, &o)
+	cmd.Flags().StringVar(&profile, "profile", "", "install a profile set (web, observability)")
 	return cmd
 }
 
@@ -111,9 +126,11 @@ func pluginFlags(cmd *cobra.Command, o *plugin.Options) {
 	f.StringVar(&o.Kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	f.StringVar(&o.Email, "email", "", "ACME account email (cert-manager)")
 	f.BoolVar(&o.Staging, "staging", false, "use Let's Encrypt staging (cert-manager)")
-	f.StringVar(&o.Provider, "provider", "", "provider variant (storage: local-path|longhorn|nfs|minio)")
+	f.StringVar(&o.Provider, "provider", "", "provider variant (storage: local-path|longhorn|nfs|minio|rook-ceph)")
 	f.StringVar(&o.Size, "size", "", "volume size (e.g. 10Gi) — storage: minio")
-	f.IntVar(&o.Replicas, "replicas", 0, "replica count — storage: minio (>=2 = distributed/HA)")
 	f.StringVar(&o.NFSServer, "nfs-server", "", "NFS server address (storage: nfs)")
 	f.StringVar(&o.NFSPath, "nfs-path", "", "NFS export path (storage: nfs)")
+	f.IntVar(&o.Replicas, "replicas", 0, "replica count — storage: minio (distributed), longhorn, rook-ceph pool size")
+	f.StringVar(&o.CephDeviceFilter, "ceph-device-filter", "", "rook-ceph: device regex (e.g. '^sd[b-d]')")
+	f.StringVar(&o.CephFailureDomain, "ceph-failure-domain", "", "rook-ceph: pool failure domain (host|osd|rack)")
 }
