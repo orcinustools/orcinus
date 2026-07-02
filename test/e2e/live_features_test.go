@@ -185,6 +185,69 @@ func TestLiveStorageMinIO(t *testing.T) {
 	}
 }
 
+// TestLiveIngressTLS proves the full HTTPS path end to end: cert-manager + Traefik
+// + an ACME HTTP-01 challenge on a real public domain. Requires ORCINUS_E2E_DOMAIN
+// to resolve to this host with inbound 80/443 open. Uses Let's Encrypt STAGING by
+// default (repeatable, no prod rate limits); set ORCINUS_E2E_ACME_PROD=1 for a
+// trusted cert.
+func TestLiveIngressTLS(t *testing.T) {
+	requireLive(t)
+	domain := os.Getenv("ORCINUS_E2E_DOMAIN")
+	if domain == "" {
+		t.Skip("set ORCINUS_E2E_DOMAIN=<public host → this machine, ports 80/443 open>")
+	}
+	email := envOr("ORCINUS_E2E_ACME_EMAIL", "admin@"+domain)
+	prod := os.Getenv("ORCINUS_E2E_ACME_PROD") != ""
+
+	orcinus, _ := liveCluster(t, "orcinus-tls", 16476, "--http-port", "80", "--https-port", "443")
+
+	certArgs := []string{"plugin", "install", "cert-manager", "--email", email}
+	if !prod {
+		certArgs = append(certArgs, "--staging")
+	}
+	if out, err := orcinus(certArgs...); err != nil {
+		t.Fatalf("install cert-manager: %v\n%s", err, out)
+	}
+
+	f := writeCompose(t, `
+services:
+  web:
+    image: traefik/whoami:v1.10
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: `+domain+`
+    x-orcinus-tls: letsencrypt
+`)
+	if out, err := orcinus("deploy", "-f", f, "--project", "tls"); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out)
+	}
+
+	certIssuer := func() string {
+		out, _ := runcOut("bash", "-lc",
+			"echo | openssl s_client -connect "+domain+":443 -servername "+domain+
+				" 2>/dev/null | openssl x509 -noout -issuer")
+		return out
+	}
+
+	// Wait until the *served* cert is from Let's Encrypt — not Traefik's default
+	// self-signed cert (which `curl -k` would otherwise accept immediately).
+	waitFor(t, 5*time.Minute, "Let's Encrypt cert served over HTTPS", func() bool {
+		body, err := runcOut("curl", "-sk", "-m", "10", "https://"+domain+"/")
+		if err != nil || !strings.Contains(body, "Hostname") {
+			return false
+		}
+		return strings.Contains(certIssuer(), "Let's Encrypt")
+	})
+	t.Logf("issued cert: %s", strings.TrimSpace(certIssuer()))
+
+	if prod {
+		// Trusted chain: curl without -k must succeed.
+		if out, err := runcOut("curl", "-sf", "-m", "10", "https://"+domain+"/"); err != nil {
+			t.Fatalf("trusted HTTPS failed: %v\n%s", err, out)
+		}
+	}
+}
+
 func pluginInstalled(orcinus func(args ...string) (string, error), name string) bool {
 	out, _ := orcinus("plugin", "list")
 	for _, line := range strings.Split(out, "\n") {

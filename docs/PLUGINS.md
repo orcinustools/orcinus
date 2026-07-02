@@ -168,6 +168,10 @@ certificate. Requirements: public DNS for the host and inbound 80/443.
 
 > Verified against a live domain: issuer `O = Let's Encrypt`, subject
 > `CN = <your host>`, served over HTTPS by Traefik.
+>
+> This flow has a **committed e2e test** (`TestLiveIngressTLS`, uses LE staging so
+> it's repeatable). Run it against your own domain:
+> `make e2e-tls ORCINUS_E2E_DOMAIN=<host> ORCINUS_E2E_DOCKER="sudo docker"`.
 
 ---
 

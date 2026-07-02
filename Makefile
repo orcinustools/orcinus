@@ -9,7 +9,7 @@ LDFLAGS := -X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.GitCom
 
 GORELEASER ?= goreleaser
 
-.PHONY: all build test e2e e2e-live tidy lint clean dist snapshot release-check
+.PHONY: all build test e2e e2e-live e2e-tls tidy lint clean dist snapshot release-check
 
 all: build
 
@@ -27,7 +27,13 @@ e2e:
 # Live e2e: boots a real cluster in Docker and drives orcinus against it.
 # Requires Docker (see test/e2e/live_test.go for the guard env vars).
 e2e-live:
-	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLive -v -timeout 15m
+	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLive -v -timeout 30m
+
+# Live Ingress + Let's Encrypt e2e against a real public domain (LE staging).
+# Requires ORCINUS_E2E_DOMAIN resolving to this host with inbound 80/443 open:
+#   make e2e-tls ORCINUS_E2E_DOMAIN=example.com ORCINUS_E2E_DOCKER="sudo docker"
+e2e-tls:
+	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLiveIngressTLS -v -timeout 15m
 
 tidy:
 	$(GO) mod tidy
