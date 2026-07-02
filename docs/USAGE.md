@@ -67,6 +67,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Manage secrets / TLS certs | `orcinus secret create[-tls] …` |
 | Add a cluster add-on | `orcinus plugin install <name>` |
 | Drop to kubectl | `orcinus kubectl <args>` |
+| Serve the REST API | `orcinus api` (see [`API.md`](./API.md)) |
 
 Commands fall into two groups: **cluster lifecycle** (`init`, `join`, `status`,
 `down`) and **workloads** (`deploy`, `rm`, `ls`, `ps`, `logs`, `scale`,
