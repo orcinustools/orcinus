@@ -17,6 +17,7 @@ type ProjectSummary struct {
 	Name       string
 	Namespaces []string
 	Workloads  int
+	Ready      int // workloads whose ready replicas meet the desired count
 }
 
 // workloadGVRs are the controller types counted by `orcinus ls`.
@@ -53,6 +54,9 @@ func (a *Applier) ListProjects(ctx context.Context, namespace string) ([]Project
 				nsSeen[proj] = map[string]bool{}
 			}
 			s.Workloads++
+			if workloadReadyFromStatus(*it) {
+				s.Ready++
+			}
 			if ns := it.GetNamespace(); !nsSeen[proj][ns] {
 				nsSeen[proj][ns] = true
 				s.Namespaces = append(s.Namespaces, ns)
@@ -67,6 +71,17 @@ func (a *Applier) ListProjects(ctx context.Context, namespace string) ([]Project
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// workloadReadyFromStatus reports readiness from a workload's status subresource
+// (Deployment/StatefulSet readyReplicas vs spec.replicas).
+func workloadReadyFromStatus(u unstructured.Unstructured) bool {
+	want, ok, _ := unstructured.NestedInt64(u.Object, "spec", "replicas")
+	if !ok {
+		want = 1
+	}
+	ready, _, _ := unstructured.NestedInt64(u.Object, "status", "readyReplicas")
+	return ready >= want
 }
 
 func (a *Applier) listWorkloads(ctx context.Context, gvr schema.GroupVersionResource, namespace string, opts metav1.ListOptions) ([]unstructured.Unstructured, error) {

@@ -19,6 +19,7 @@ orcinus deploy --wait          # picks up orcinus.yml automatically
 | [`deploy-strategies/`](./deploy-strategies/orcinus.yml) | **Update strategies**: Swarm `deploy.update_config` (rolling) + `x-orcinus-strategy: recreate`. See [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md). |
 | [`autoscale/`](./autoscale/orcinus.yml) | **Horizontal autoscaling** via `x-orcinus-autoscale-*` (HPA on CPU). |
 | [`rollout/`](./rollout/orcinus.yml) | **Progressive delivery** — `x-orcinus-rollout: canary` / `bluegreen` (Argo Rollouts, auto-installed). |
+| [`custom-cert/`](./custom-cert/orcinus.yml) | **Bring-your-own TLS cert** (incl. wildcard) via `orcinus secret create-tls` + `x-orcinus-tls-secret`. |
 
 Single-file basics also live here: [`orcinus.yml`](./orcinus.yml) and
 [`docker-compose.yml`](./docker-compose.yml).

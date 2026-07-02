@@ -1,0 +1,14 @@
+# Serve a web app with your OWN TLS certificate (no Let's Encrypt / cert-manager).
+# Works for a normal host or a wildcard cert you already have. See docs/PLUGINS.md.
+#
+# 1) Create the TLS secret from your PEM cert + key:
+#      orcinus secret create-tls mysite-cert --cert fullchain.pem --key privkey.pem
+# 2) Reference it here, then:  orcinus deploy -f orcinus.yml
+services:
+  site:
+    image: nginxdemos/hello:latest
+    ports:
+      - "80"
+    x-orcinus-expose: ingress
+    x-orcinus-host: app.example.com     # or "*.example.com" for a wildcard cert
+    x-orcinus-tls-secret: mysite-cert

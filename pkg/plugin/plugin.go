@@ -327,6 +327,16 @@ func Remove(ctx context.Context, name string, o Options) error {
 	return unrecord(name)
 }
 
+// Upgrade re-applies a plugin at its current pinned version (server-side apply
+// moves it to the newer manifests). Same effect as Install; kept as a distinct
+// verb for clarity.
+func Upgrade(ctx context.Context, name string, o Options) error {
+	if _, ok := Registry[name]; !ok {
+		return fmt.Errorf("unknown plugin %q", name)
+	}
+	return Install(ctx, name, o)
+}
+
 // certManagerIssuer builds a Let's Encrypt ClusterIssuer named "letsencrypt".
 func certManagerIssuer(o Options) ([]runtime.Object, error) {
 	server := "https://acme-v02.api.letsencrypt.org/directory"
@@ -419,6 +429,21 @@ func recordInstalled(name string) error {
 
 // Installed reports whether a plugin is recorded as installed.
 func Installed(name string) bool { return loadState().Installed[name] }
+
+// Ready checks a plugin's WaitFor Deployments. known=false means readiness can't
+// be determined (no static WaitFor, e.g. storage providers).
+func Ready(ctx context.Context, a *deploy.Applier, name string) (known, ready bool) {
+	spec, ok := Registry[name]
+	if !ok || len(spec.WaitFor) == 0 {
+		return false, false
+	}
+	for _, w := range spec.WaitFor {
+		if !a.DeploymentReady(ctx, w.Namespace, w.Name) {
+			return true, false
+		}
+	}
+	return true, true
+}
 
 func unrecord(name string) error {
 	s := loadState()

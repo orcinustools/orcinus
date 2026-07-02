@@ -27,6 +27,7 @@ Compose compatible and under our control.
 | M4 | Plugins (`plugin install cert-manager` …) + ingress/TLS `x-orcinus-tls` | ✅ done |
 | M5 | Scaling: `scale`, `autoscale` (HPA) + `x-orcinus-autoscale-*` | ✅ done |
 | M6 | Deploy strategies (`update_config`) + progressive delivery (`x-orcinus-rollout`) | ✅ done |
+| M7 | Day-2 ops: `rollback`, `kubectl` passthrough, `secret`, readiness in `ls`/`plugin list`, `plugin upgrade` | ✅ done |
 
 Verified compose→k8s mappings: controllers (Deployment/StatefulSet/DaemonSet),
 Service (ClusterIP/NodePort), Ingress, PVC, Secret extraction, replicas,

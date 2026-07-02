@@ -150,7 +150,44 @@ services:
 	})
 }
 
-// TestLivePlugins: install/remove an inline plugin, with namespace cleanup.
+// TestLiveRollback: rollback + kubectl passthrough + `ls` readiness column.
+func TestLiveRollback(t *testing.T) {
+	requireLive(t)
+	orcinus, kubectl := liveCluster(t, "orcinus-rb", 16483)
+
+	deploy := func(image string) {
+		f := writeCompose(t, "services:\n  web:\n    image: "+image+"\n    ports: [\"80\"]\n")
+		if out, err := orcinus("deploy", "-f", f, "--project", "rb", "--wait"); err != nil {
+			t.Fatalf("deploy %s: %v\n%s", image, err, out)
+		}
+	}
+	image := func() string {
+		out, _ := kubectl("get", "deploy", "web", "-o", "jsonpath={.spec.template.spec.containers[0].image}")
+		return strings.TrimSpace(out)
+	}
+
+	deploy("nginx:1.27")
+
+	// `orcinus ls` READY column.
+	if out, _ := orcinus("ls"); !strings.Contains(out, "1/1") {
+		t.Errorf("ls should show READY 1/1:\n%s", out)
+	}
+	// `orcinus kubectl` passthrough (falls back to the cluster's kubectl).
+	if out, err := orcinus("kubectl", "get", "nodes", "--no-headers"); err != nil || !strings.Contains(out, "Ready") {
+		t.Fatalf("kubectl passthrough failed: %v\n%s", err, out)
+	}
+
+	deploy("nginx:1.28")
+	if got := image(); got != "nginx:1.28" {
+		t.Fatalf("after update image = %q, want nginx:1.28", got)
+	}
+	if out, err := orcinus("rollback", "web"); err != nil {
+		t.Fatalf("rollback: %v\n%s", err, out)
+	}
+	waitFor(t, 60*time.Second, "rolled back to nginx:1.27", func() bool { return image() == "nginx:1.27" })
+}
+
+// TestLivePlugins: install/upgrade/remove an inline plugin, with namespace cleanup.
 func TestLivePlugins(t *testing.T) {
 	requireLive(t)
 	orcinus, kubectl := liveCluster(t, "orcinus-pl", 16474)
@@ -159,6 +196,9 @@ func TestLivePlugins(t *testing.T) {
 	}
 	if out, err := kubectl("-n", "orcinus-registry", "get", "deploy", "registry"); err != nil {
 		t.Fatalf("registry deploy missing: %v\n%s", err, out)
+	}
+	if out, err := orcinus("plugin", "upgrade", "registry"); err != nil {
+		t.Fatalf("upgrade registry: %v\n%s", err, out)
 	}
 	if out, err := orcinus("plugin", "remove", "registry"); err != nil {
 		t.Fatalf("remove registry: %v\n%s", err, out)

@@ -38,9 +38,9 @@ func newLsCmd() *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 3, ' ', 0)
-			fmt.Fprintln(w, "PROJECT\tWORKLOADS\tNAMESPACES")
+			fmt.Fprintln(w, "PROJECT\tWORKLOADS\tREADY\tNAMESPACES")
 			for _, p := range projects {
-				fmt.Fprintf(w, "%s\t%d\t%s\n", p.Name, p.Workloads, strings.Join(p.Namespaces, ","))
+				fmt.Fprintf(w, "%s\t%d\t%d/%d\t%s\n", p.Name, p.Workloads, p.Ready, p.Workloads, strings.Join(p.Namespaces, ","))
 			}
 			return w.Flush()
 		},

@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/orcinustools/orcinus/pkg/deploy"
 	"github.com/orcinustools/orcinus/pkg/plugin"
 )
 
@@ -14,7 +15,25 @@ func newPluginCmd() *cobra.Command {
 		Use:   "plugin",
 		Short: "Manage cluster add-ons (ingress, cert-manager, storage, …)",
 	}
-	cmd.AddCommand(newPluginListCmd(), newPluginInfoCmd(), newPluginInstallCmd(), newPluginRemoveCmd())
+	cmd.AddCommand(newPluginListCmd(), newPluginInfoCmd(), newPluginInstallCmd(), newPluginRemoveCmd(), newPluginUpgradeCmd())
+	return cmd
+}
+
+func newPluginUpgradeCmd() *cobra.Command {
+	var o plugin.Options
+	cmd := &cobra.Command{
+		Use:   "upgrade <name>",
+		Short: "Re-apply a plugin at its current pinned version",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := plugin.Upgrade(cmd.Context(), args[0], o); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "plugin %q upgraded\n", args[0])
+			return nil
+		},
+	}
+	pluginFlags(cmd, &o)
 	return cmd
 }
 
@@ -72,22 +91,36 @@ func newPluginRemoveCmd() *cobra.Command {
 }
 
 func newPluginListCmd() *cobra.Command {
-	return &cobra.Command{
+	var kubeconfig string
+	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List available plugins",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Readiness is best-effort — only if a cluster is reachable.
+			var applier *deploy.Applier
+			if cfg, err := deploy.LoadRESTConfig(kubeconfig); err == nil {
+				applier, _ = deploy.NewApplier(cfg)
+			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 3, ' ', 0)
-			fmt.Fprintln(w, "NAME\tINSTALLED\tDESCRIPTION")
+			fmt.Fprintln(w, "NAME\tINSTALLED\tREADY\tDESCRIPTION")
 			for _, s := range plugin.List() {
-				mark := "no"
+				installed := "no"
 				if plugin.Installed(s.Name) {
-					mark = "yes"
+					installed = "yes"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", s.Name, mark, s.Description)
+				ready := "-"
+				if applier != nil && plugin.Installed(s.Name) {
+					if known, ok := plugin.Ready(cmd.Context(), applier, s.Name); known {
+						ready = map[bool]string{true: "yes", false: "no"}[ok]
+					}
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, installed, ready, s.Description)
 			}
 			return w.Flush()
 		},
 	}
+	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig")
+	return cmd
 }
 
 func newPluginInstallCmd() *cobra.Command {

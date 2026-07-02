@@ -31,9 +31,12 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.9 `logs`](#59-orcinus-logs)
   - [5.10 `scale`](#510-orcinus-scale)
   - [5.11 `autoscale`](#511-orcinus-autoscale)
-  - [5.12 `plugin`](#512-orcinus-plugin)
-  - [5.13 `version`](#513-orcinus-version)
-  - [5.14 `completion`](#514-orcinus-completion)
+  - [5.12 `rollback`](#512-orcinus-rollback)
+  - [5.13 `secret`](#513-orcinus-secret)
+  - [5.14 `plugin`](#514-orcinus-plugin)
+  - [5.15 `kubectl`](#515-orcinus-kubectl)
+  - [5.16 `version`](#516-orcinus-version)
+  - [5.17 `completion`](#517-orcinus-completion)
 - [6. Datastore](#6-datastore)
 - [Appendix A — Compose → Kubernetes mapping](#appendix-a--compose--kubernetes-mapping)
 - [Appendix B — `x-orcinus-*` extension reference](#appendix-b--x-orcinus--extension-reference)
@@ -60,11 +63,14 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Tail logs | `orcinus logs <service>` |
 | Scale a service | `orcinus scale <service> <replicas>` |
 | Autoscale a service | `orcinus autoscale <service> --max N` |
+| Roll back a bad release | `orcinus rollback <service>` |
+| Manage secrets / TLS certs | `orcinus secret create[-tls] …` |
 | Add a cluster add-on | `orcinus plugin install <name>` |
+| Drop to kubectl | `orcinus kubectl <args>` |
 
 Commands fall into two groups: **cluster lifecycle** (`init`, `join`, `status`,
 `down`) and **workloads** (`deploy`, `rm`, `ls`, `ps`, `logs`, `scale`,
-`autoscale`, `plugin`).
+`autoscale`, `rollback`, `secret`, `plugin`, `kubectl`).
 
 ---
 
@@ -454,7 +460,51 @@ services:
     x-orcinus-autoscale-cpu: 70
 ```
 
-### 5.12 `orcinus plugin`
+### 5.12 `orcinus rollback`
+
+Roll a service back to its previous revision. Works for a Deployment, StatefulSet,
+or Argo Rollout.
+
+```
+orcinus rollback <service> [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-n, --namespace <ns>` | `default` | Namespace |
+| `--kubeconfig <path>` | auto | Target cluster |
+
+```bash
+orcinus rollback web            # revert web to the prior revision
+```
+
+### 5.13 `orcinus secret`
+
+Manage Kubernetes Secrets — including bring-your-own TLS certs.
+
+```
+orcinus secret create <name> --from-literal KEY=VALUE [...]
+orcinus secret create-tls <name> --cert <file> --key <file>
+orcinus secret ls
+orcinus secret rm <name>
+```
+
+| Subcommand | Purpose |
+|---|---|
+| `create` | Opaque secret from `--from-literal KEY=VALUE` (repeatable) |
+| `create-tls` | TLS secret from a PEM cert + key — reference with `x-orcinus-tls-secret` |
+| `ls` | List secrets (name, type, key count, whether orcinus-managed) |
+| `rm` | Delete a secret |
+
+All take `-n`/`--namespace` (default `default`) and `--kubeconfig`. Created
+secrets are labelled `managed-by=orcinus`.
+
+```bash
+orcinus secret create db-creds --from-literal PASSWORD=s3cr3t
+orcinus secret create-tls mysite-cert --cert fullchain.pem --key privkey.pem
+```
+
+### 5.14 `orcinus plugin`
 
 Manage cluster add-ons (see [`PLUGINS.md`](./PLUGINS.md)).
 
@@ -487,7 +537,19 @@ orcinus plugin install storage --provider nfs --nfs-server 10.0.0.9 --nfs-path /
 
 For fault-tolerant storage across nodes, see [`HA-STORAGE.md`](./HA-STORAGE.md).
 
-### 5.13 `orcinus version`
+### 5.15 `orcinus kubectl`
+
+Escape hatch: run `kubectl` against the orcinus cluster. Uses your local `kubectl`
+(with the resolved kubeconfig) if installed, otherwise the cluster container's
+bundled kubectl. All arguments pass straight through.
+
+```bash
+orcinus kubectl get pods -A
+orcinus kubectl describe deploy web
+orcinus kubectl logs deploy/web
+```
+
+### 5.16 `orcinus version`
 
 Print the orcinus version, git commit, and the embedded conversion-engine ref.
 
@@ -495,7 +557,7 @@ Print the orcinus version, git commit, and the embedded conversion-engine ref.
 orcinus version
 ```
 
-### 5.14 `orcinus completion`
+### 5.17 `orcinus completion`
 
 Generate a shell completion script (bash, zsh, fish, powershell).
 
@@ -564,6 +626,7 @@ keys; orcinus parses them during conversion.
 | `x-orcinus-volume-size` | e.g. `5Gi` | PVC request size for the service's volumes |
 | `x-orcinus-secret` | list of env var names | Move those env vars into a `Secret` (referenced via `secretKeyRef`) |
 | `x-orcinus-tls` | ClusterIssuer name (e.g. `letsencrypt`) | Adds a TLS block + `cert-manager.io/cluster-issuer` annotation (needs the `cert-manager` plugin) |
+| `x-orcinus-tls-secret` | existing TLS Secret name | Serve a **custom/BYO cert** from that Secret (no cert-manager); wins over `x-orcinus-tls` |
 | `x-orcinus-path` | path (default `/`) | Ingress path |
 | `x-orcinus-port` | port number | Which service port the ingress routes to |
 | `x-orcinus-ingress-class` | `traefik` \| `nginx` \| … | Ingress class to use |

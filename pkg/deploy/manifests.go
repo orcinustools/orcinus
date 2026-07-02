@@ -58,6 +58,19 @@ func (a *Applier) DeleteObjects(ctx context.Context, objects []runtime.Object) e
 	return nil
 }
 
+// DeploymentReady is a non-blocking readiness check for a Deployment.
+func (a *Applier) DeploymentReady(ctx context.Context, namespace, name string) bool {
+	d, err := a.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	want := int32(1)
+	if d.Spec.Replicas != nil {
+		want = *d.Spec.Replicas
+	}
+	return d.Status.ReadyReplicas >= want
+}
+
 // WaitForDeployment blocks until a Deployment reports its desired replicas ready.
 func (a *Applier) WaitForDeployment(ctx context.Context, namespace, name string, timeout time.Duration) error {
 	if timeout <= 0 {

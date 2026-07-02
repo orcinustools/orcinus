@@ -75,6 +75,24 @@ func LoadRESTConfig(kubeconfig string) (*rest.Config, error) {
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
+// ResolveKubeconfigPath returns the kubeconfig file path using the same order as
+// LoadRESTConfig (explicit → $KUBECONFIG → ~/.orcinus/kubeconfig → ~/.kube/config).
+func ResolveKubeconfigPath(kubeconfig string) string {
+	if kubeconfig != "" {
+		return kubeconfig
+	}
+	if v := os.Getenv("KUBECONFIG"); v != "" {
+		return v
+	}
+	if p := OrcinusKubeconfigPath(); p != "" && fileExists(p) {
+		return p
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".kube", "config")
+	}
+	return ""
+}
+
 // OrcinusKubeconfigPath is where `orcinus init` writes the cluster kubeconfig.
 func OrcinusKubeconfigPath() string {
 	home, err := os.UserHomeDir()
@@ -273,12 +291,16 @@ func (a *Applier) workloadReady(ctx context.Context, r AppliedRef) (bool, error)
 	case "DaemonSet":
 		want := nestedInt(status, "desiredNumberScheduled", 0)
 		return want > 0 && nestedInt(status, "numberReady", 0) >= want, nil
+	case "Rollout":
+		// Argo Rollout: ready when the controller reports phase Healthy.
+		phase, _, _ := unstructured.NestedString(u.Object, "status", "phase")
+		return phase == "Healthy", nil
 	}
 	return true, nil
 }
 
 func isWorkload(kind string) bool {
-	return kind == "Deployment" || kind == "StatefulSet" || kind == "DaemonSet"
+	return kind == "Deployment" || kind == "StatefulSet" || kind == "DaemonSet" || kind == "Rollout"
 }
 
 // --- helpers ---

@@ -64,7 +64,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 
 | Plugin | Options | Installs |
 |---|---|---|
-| `cert-manager` | `--email` (required), `--staging` | cert-manager + a `letsencrypt` `ClusterIssuer` (prod, or staging) |
+| `cert-manager` | `--email` (required), `--staging`, `--dns cloudflare --dns-token <t>` | cert-manager + a `letsencrypt` `ClusterIssuer` (HTTP-01); with `--dns`, also a `letsencrypt-dns` issuer (DNS-01, for wildcards) |
 | `ingress-nginx` | — | NGINX ingress controller (class `nginx`) |
 | `metrics-server` | — | metrics-server (`kubectl top`, HPA) |
 | `monitoring` | — | Prometheus Operator (CRDs + operator) |
@@ -173,6 +173,45 @@ example: [`examples/ingress-tls`](../examples/ingress-tls/orcinus.yml).
 > This flow has a **committed e2e test** (`TestLiveIngressTLS`, uses LE staging so
 > it's repeatable). Run it against your own domain:
 > `make e2e-tls ORCINUS_E2E_DOMAIN=<host> ORCINUS_E2E_DOCKER="sudo docker"`.
+
+---
+
+## Wildcard domains & custom certificates
+
+**Wildcard (`*.example.com`)** needs a **DNS-01** issuer (HTTP-01 can't do
+wildcards). Install cert-manager with a DNS provider, which adds a
+`letsencrypt-dns` `ClusterIssuer`:
+
+```bash
+orcinus plugin install cert-manager --email you@example.com --dns cloudflare --dns-token <api-token>
+```
+```yaml
+services:
+  app:
+    image: myapp
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: "*.example.com"
+    x-orcinus-tls: letsencrypt-dns     # the DNS-01 issuer
+```
+
+**Custom / bring-your-own cert** (incl. a wildcard cert you already have): put it
+in a TLS Secret and reference it — no cert-manager, no ACME:
+
+```bash
+orcinus secret create-tls star-example --cert fullchain.pem --key privkey.pem
+```
+```yaml
+services:
+  app:
+    image: myapp
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: "*.example.com"
+    x-orcinus-tls-secret: star-example
+```
+
+`x-orcinus-tls-secret` takes precedence over `x-orcinus-tls`.
 
 ---
 

@@ -204,9 +204,10 @@ See [`USAGE.md`](./USAGE.md#511-orcinus-autoscale) for the full flag reference.
 ## What is not mapped
 
 - `update_config.failure_action: rollback` — Kubernetes Deployments don't
-  auto-roll-back a failed update (a failed rollout is *marked* failed after
-  `progressDeadlineSeconds`, but not reverted). Roll back manually or use Argo
-  Rollouts' analysis/abort features.
+  *auto*-roll-back a failed update (a failed rollout is *marked* failed after
+  `progressDeadlineSeconds`, but not reverted). Roll back manually with
+  **`orcinus rollback <service>`** (reverts a Deployment/StatefulSet/Rollout to
+  its previous revision), or use Argo Rollouts' analysis/abort features.
 - `update_config.max_failure_ratio` — no direct equivalent.
 - `rollback_config` — not mapped yet.
 - True canary **traffic splitting** needs an ingress/mesh integration; the
