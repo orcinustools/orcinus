@@ -24,6 +24,7 @@ Compose compatible and under our control.
 | M3 | Cluster runtime: `init` / `join` / `status` / `down` (auto kubeconfig) | ✅ done |
 | M4 | Plugins (`plugin install cert-manager` …) + ingress/TLS `x-orcinus-tls` | ✅ done |
 | M5 | Scaling: `scale`, `autoscale` (HPA) + `x-orcinus-autoscale-*` | ✅ done |
+| M6 | Deploy strategies (`update_config`) + progressive delivery (`x-orcinus-rollout`) | ✅ done |
 
 Verified compose→k8s mappings: controllers (Deployment/StatefulSet/DaemonSet),
 Service (ClusterIP/NodePort), Ingress, PVC, Secret extraction, replicas,

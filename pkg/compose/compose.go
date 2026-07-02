@@ -21,7 +21,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // Ownership label keys applied to every generated object (ARCHITECTURE.md §2.4).
@@ -69,6 +71,8 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	secrets := map[string][]string{}
 	ingressCfgs := map[string]ingressCfg{}
 	autoscaleCfgs := map[string]autoscaleCfg{}
+	strategyCfgs := map[string]strategyCfg{}
+	rolloutCfgs := map[string]string{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
@@ -87,6 +91,12 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, cfg := range pp.autoscale {
 			autoscaleCfgs[svc] = cfg
+		}
+		for svc, cfg := range pp.strategy {
+			strategyCfgs[svc] = cfg
+		}
+		for svc, kind := range pp.rollout {
+			rolloutCfgs[svc] = kind
 		}
 		tmp := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s", i, filepath.Base(f)))
 		if err := os.WriteFile(tmp, pp.content, 0o600); err != nil {
@@ -135,17 +145,175 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	// 6. Apply ingress hints (TLS/path/port/class) to generated Ingresses.
 	applyIngressConfig(objects, ingressCfgs)
 
-	// 7. Generate HorizontalPodAutoscalers from x-orcinus-autoscale-*.
-	hpas := buildAutoscalers(objects, autoscaleCfgs, opts)
+	// 7. Convert Deployments to Argo Rollouts for x-orcinus-rollout services.
+	objects, rolloutSvcs, err := convertRollouts(objects, rolloutCfgs)
+	if err != nil {
+		return nil, err
+	}
+
+	// 8. Generate HorizontalPodAutoscalers from x-orcinus-autoscale-*.
+	hpas := buildAutoscalers(objects, autoscaleCfgs, opts, rolloutSvcs)
 	objects = append(objects, hpas...)
+
+	// 9. Apply Deployment update strategy from x-orcinus-strategy (Rollouts skip).
+	applyStrategy(objects, strategyCfgs)
 
 	sortObjects(objects)
 	return objects, nil
 }
 
+// convertRollouts replaces the Deployment of each x-orcinus-rollout service with
+// an Argo Rollout CR (canary or blue-green). Returns the new object set and the
+// set of services that became Rollouts.
+func convertRollouts(objects []runtime.Object, cfgs map[string]string) ([]runtime.Object, map[string]bool, error) {
+	if len(cfgs) == 0 {
+		return objects, nil, nil
+	}
+	hasService := map[string]bool{}
+	for _, o := range objects {
+		if s, ok := o.(*corev1.Service); ok {
+			hasService[s.Name] = true
+		}
+	}
+
+	rolloutSvcs := map[string]bool{}
+	out := make([]runtime.Object, 0, len(objects))
+	for _, o := range objects {
+		dep, ok := o.(*appsv1.Deployment)
+		if !ok {
+			out = append(out, o)
+			continue
+		}
+		kind, want := cfgs[dep.Name]
+		if !want {
+			out = append(out, o)
+			continue
+		}
+		ro, err := deploymentToRollout(dep, kind, hasService[dep.Name])
+		if err != nil {
+			return nil, nil, err
+		}
+		out = append(out, ro)
+		rolloutSvcs[dep.Name] = true
+	}
+	return out, rolloutSvcs, nil
+}
+
+// deploymentToRollout builds an Argo Rollout (unstructured) from a Deployment.
+func deploymentToRollout(dep *appsv1.Deployment, kind string, hasService bool) (runtime.Object, error) {
+	m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(dep)
+	if err != nil {
+		return nil, err
+	}
+	spec, _ := m["spec"].(map[string]interface{})
+	if spec == nil {
+		return nil, fmt.Errorf("rollout %q: deployment has no spec", dep.Name)
+	}
+	// The Rollout CRD's structural schema rejects the null template
+	// creationTimestamp that typed→unstructured conversion leaves behind.
+	if tmpl, ok := spec["template"].(map[string]interface{}); ok {
+		if md, ok := tmpl["metadata"].(map[string]interface{}); ok {
+			delete(md, "creationTimestamp")
+		}
+	}
+
+	var strategy map[string]interface{}
+	switch kind {
+	case "canary":
+		strategy = map[string]interface{}{"canary": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{"setWeight": int64(50)},
+				map[string]interface{}{"pause": map[string]interface{}{"duration": int64(15)}},
+			},
+		}}
+	case "bluegreen":
+		if !hasService {
+			return nil, fmt.Errorf("rollout %q: blue-green needs a Service (add a `ports:` entry)", dep.Name)
+		}
+		strategy = map[string]interface{}{"blueGreen": map[string]interface{}{
+			"activeService":        dep.Name,
+			"autoPromotionEnabled": true,
+		}}
+	default:
+		return nil, fmt.Errorf("rollout %q: unknown kind %q", dep.Name, kind)
+	}
+
+	rolloutSpec := map[string]interface{}{
+		"replicas": spec["replicas"],
+		"selector": spec["selector"],
+		"template": spec["template"],
+		"strategy": strategy,
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "argoproj.io/v1alpha1",
+		"kind":       "Rollout",
+		"metadata": map[string]interface{}{
+			"name":      dep.Name,
+			"namespace": dep.Namespace,
+			"labels":    toStringMapIface(dep.Labels),
+		},
+		"spec": rolloutSpec,
+	}}, nil
+}
+
+func toStringMapIface(m map[string]string) map[string]interface{} {
+	out := map[string]interface{}{}
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// applyStrategy sets the update strategy (rolling/recreate + knobs) on the
+// Deployment for each service that requested one.
+func applyStrategy(objects []runtime.Object, cfgs map[string]strategyCfg) {
+	if len(cfgs) == 0 {
+		return
+	}
+	for _, obj := range objects {
+		dep, ok := obj.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+		cfg, ok := cfgs[dep.Name]
+		if !ok {
+			continue
+		}
+		if cfg.MinReadySeconds > 0 {
+			dep.Spec.MinReadySeconds = cfg.MinReadySeconds
+		}
+		if cfg.ProgressDeadline > 0 {
+			pd := cfg.ProgressDeadline
+			dep.Spec.ProgressDeadlineSeconds = &pd
+		}
+		if cfg.Type == "recreate" {
+			dep.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
+			continue
+		}
+		// rolling (default) — set knobs if provided.
+		ru := &appsv1.RollingUpdateDeployment{}
+		set := false
+		if cfg.MaxSurge != "" {
+			v := intstr.Parse(cfg.MaxSurge)
+			ru.MaxSurge = &v
+			set = true
+		}
+		if cfg.MaxUnavailable != "" {
+			v := intstr.Parse(cfg.MaxUnavailable)
+			ru.MaxUnavailable = &v
+			set = true
+		}
+		strat := appsv1.DeploymentStrategy{Type: appsv1.RollingUpdateDeploymentStrategyType}
+		if set {
+			strat.RollingUpdate = ru
+		}
+		dep.Spec.Strategy = strat
+	}
+}
+
 // buildAutoscalers creates an HPA per service that requested autoscaling,
 // targeting that service's Deployment or StatefulSet.
-func buildAutoscalers(objects []runtime.Object, cfgs map[string]autoscaleCfg, opts Options) []runtime.Object {
+func buildAutoscalers(objects []runtime.Object, cfgs map[string]autoscaleCfg, opts Options, rolloutSvcs map[string]bool) []runtime.Object {
 	if len(cfgs) == 0 {
 		return nil
 	}
@@ -164,9 +332,13 @@ func buildAutoscalers(objects []runtime.Object, cfgs map[string]autoscaleCfg, op
 
 	var out []runtime.Object
 	for svc, cfg := range cfgs {
+		apiVersion := "apps/v1"
 		kind := kindOf[svc]
 		if kind == "" {
 			kind = "Deployment"
+		}
+		if rolloutSvcs[svc] { // HPA targets the Rollout instead
+			apiVersion, kind = "argoproj.io/v1alpha1", "Rollout"
 		}
 		min := int32(cfg.Min)
 		if min < 1 {
@@ -181,7 +353,7 @@ func buildAutoscalers(objects []runtime.Object, cfgs map[string]autoscaleCfg, op
 			TypeMeta:   metav1.TypeMeta{APIVersion: "autoscaling/v2", Kind: "HorizontalPodAutoscaler"},
 			ObjectMeta: metav1.ObjectMeta{Name: svc},
 			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
-				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{APIVersion: "apps/v1", Kind: kind, Name: svc},
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{APIVersion: apiVersion, Kind: kind, Name: svc},
 				MinReplicas:    &min,
 				MaxReplicas:    int32(cfg.Max),
 				Metrics:        autoscaleMetrics(cpu, mem),

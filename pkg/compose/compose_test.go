@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -285,6 +286,113 @@ services:
 		return
 	}
 	t.Fatal("no HorizontalPodAutoscaler found")
+}
+
+func TestConvertStrategy(t *testing.T) {
+	const f = `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-strategy: recreate
+  api:
+    image: nginx:1.27
+    ports: ["8080"]
+    x-orcinus-strategy: rolling
+    x-orcinus-max-unavailable: "0"
+    x-orcinus-max-surge: "50%"
+`
+	var web, api *appsv1.Deployment
+	for _, o := range convertString(t, f) {
+		if d, ok := o.(*appsv1.Deployment); ok {
+			switch d.Name {
+			case "web":
+				web = d
+			case "api":
+				api = d
+			}
+		}
+	}
+	if web == nil || api == nil {
+		t.Fatal("web/api Deployment not found")
+	}
+	if web.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
+		t.Errorf("web strategy = %q, want Recreate", web.Spec.Strategy.Type)
+	}
+	if api.Spec.Strategy.Type != appsv1.RollingUpdateDeploymentStrategyType {
+		t.Errorf("api strategy = %q, want RollingUpdate", api.Spec.Strategy.Type)
+	}
+	if api.Spec.Strategy.RollingUpdate == nil ||
+		api.Spec.Strategy.RollingUpdate.MaxUnavailable.String() != "0" ||
+		api.Spec.Strategy.RollingUpdate.MaxSurge.String() != "50%" {
+		t.Errorf("api rolling knobs = %+v", api.Spec.Strategy.RollingUpdate)
+	}
+}
+
+func TestConvertUpdateConfig(t *testing.T) {
+	const f = `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    deploy:
+      update_config:
+        order: start-first
+        parallelism: 2
+        delay: 10s
+        monitor: 60s
+`
+	dep := firstDeployment(t, convertString(t, f))
+	s := dep.Spec.Strategy
+	if s.Type != appsv1.RollingUpdateDeploymentStrategyType || s.RollingUpdate == nil {
+		t.Fatalf("strategy = %+v, want RollingUpdate", s)
+	}
+	if s.RollingUpdate.MaxSurge.String() != "2" || s.RollingUpdate.MaxUnavailable.String() != "0" {
+		t.Errorf("surge/unavail = %s/%s, want 2/0", s.RollingUpdate.MaxSurge, s.RollingUpdate.MaxUnavailable)
+	}
+	if dep.Spec.MinReadySeconds != 10 {
+		t.Errorf("minReadySeconds = %d, want 10", dep.Spec.MinReadySeconds)
+	}
+	if dep.Spec.ProgressDeadlineSeconds == nil || *dep.Spec.ProgressDeadlineSeconds != 60 {
+		t.Errorf("progressDeadlineSeconds = %v, want 60", dep.Spec.ProgressDeadlineSeconds)
+	}
+}
+
+func TestConvertRollout(t *testing.T) {
+	const f = `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-rollout: canary
+  api:
+    image: nginx:1.27
+    ports: ["8080"]
+    x-orcinus-rollout: bluegreen
+`
+	rollouts := map[string]*unstructured.Unstructured{}
+	for _, o := range convertString(t, f) {
+		if d, ok := o.(*appsv1.Deployment); ok && (d.Name == "web" || d.Name == "api") {
+			t.Fatalf("%s should be a Rollout, not a Deployment", d.Name)
+		}
+		if u, ok := o.(*unstructured.Unstructured); ok && u.GetKind() == "Rollout" {
+			rollouts[u.GetName()] = u
+		}
+	}
+	if rollouts["web"] == nil || rollouts["api"] == nil {
+		t.Fatalf("expected web+api Rollouts, got %v", rollouts)
+	}
+	if _, ok, _ := unstructured.NestedSlice(rollouts["web"].Object, "spec", "strategy", "canary", "steps"); !ok {
+		t.Errorf("web should have canary steps")
+	}
+	svc, _, _ := unstructured.NestedString(rollouts["api"].Object, "spec", "strategy", "blueGreen", "activeService")
+	if svc != "api" {
+		t.Errorf("api blueGreen activeService = %q, want api", svc)
+	}
+	// The template's null creationTimestamp must be stripped (CRD schema).
+	if _, ok, _ := unstructured.NestedFieldNoCopy(rollouts["web"].Object, "spec", "template", "metadata", "creationTimestamp"); ok {
+		t.Errorf("web rollout template still has creationTimestamp")
+	}
 }
 
 func TestConvertIngress(t *testing.T) {

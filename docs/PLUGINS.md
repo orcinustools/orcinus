@@ -68,6 +68,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `ingress-nginx` | — | NGINX ingress controller (class `nginx`) |
 | `metrics-server` | — | metrics-server (`kubectl top`, HPA) |
 | `monitoring` | — | Prometheus Operator (CRDs + operator) |
+| `argo-rollouts` | — | Argo Rollouts controller for canary/blue-green (`x-orcinus-rollout`) |
 | `storage` | `--provider`, `--size`, `--nfs-server`, `--nfs-path` | Storage backends — see below |
 
 `cert-manager` waits for its webhook to be ready before creating the issuer.

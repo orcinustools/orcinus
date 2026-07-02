@@ -40,6 +40,7 @@ type WaitTarget struct{ Namespace, Name string }
 
 // built is the concrete result of resolving a plugin for given options.
 type built struct {
+	Namespace string           // if set, created first + used as the default ns for Manifests
 	Manifests []string         // URLs applied in order
 	Objects   []runtime.Object // inline objects applied after manifests
 	WaitFor   []WaitTarget
@@ -53,6 +54,7 @@ type Spec struct {
 	Name        string
 	Description string
 	Providers   []string // for `plugin info`; storage/ingress variants
+	Namespace   string   // install namespace (created first)
 	Manifests   []string // static URLs (when Build is nil)
 	WaitFor     []WaitTarget
 	PostInstall func(o Options) ([]runtime.Object, error)
@@ -67,7 +69,7 @@ func resolve(spec Spec, o Options) (built, error) {
 	if spec.Build != nil {
 		return spec.Build(o)
 	}
-	return built{Manifests: spec.Manifests, WaitFor: spec.WaitFor}, nil
+	return built{Namespace: spec.Namespace, Manifests: spec.Manifests, WaitFor: spec.WaitFor}, nil
 }
 
 // Registry is the built-in plugin catalog.
@@ -92,6 +94,14 @@ var Registry = map[string]Spec{
 		Name:        "metrics-server",
 		Description: "Cluster metrics (kubectl top, HPA)",
 		Manifests:   []string{"https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"},
+	},
+	"argo-rollouts": {
+		Name:        "argo-rollouts",
+		Description: "Progressive delivery — canary & blue-green (Argo Rollouts)",
+		Namespace:   "argo-rollouts",
+		Manifests:   []string{"https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml"},
+		WaitFor:     []WaitTarget{{Namespace: "argo-rollouts", Name: "argo-rollouts"}},
+		Notes:       "Use x-orcinus-rollout: canary|bluegreen on a service.",
 	},
 	"monitoring": {
 		Name:        "monitoring",
@@ -144,6 +154,12 @@ func Install(ctx context.Context, name string, o Options) error {
 		return err
 	}
 
+	// Create the install namespace first (many manifests assume it exists).
+	if plan.Namespace != "" {
+		if _, err := applier.Apply(ctx, []runtime.Object{namespaceObj(plan.Namespace)}, deploy.ApplyOptions{}); err != nil {
+			return err
+		}
+	}
 	for _, url := range plan.Manifests {
 		data, err := fetch(url)
 		if err != nil {
@@ -153,7 +169,7 @@ func Install(ctx context.Context, name string, o Options) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", url, err)
 		}
-		if _, err := applier.Apply(ctx, objs, deploy.ApplyOptions{}); err != nil {
+		if _, err := applier.Apply(ctx, objs, deploy.ApplyOptions{DefaultNamespace: plan.Namespace}); err != nil {
 			return fmt.Errorf("apply %s: %w", spec.Name, err)
 		}
 	}
@@ -313,6 +329,13 @@ func unrecord(name string) error {
 }
 
 // --- helpers ---
+
+func namespaceObj(name string) runtime.Object {
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "v1", "kind": "Namespace",
+		"metadata": map[string]interface{}{"name": name},
+	}}
+}
 
 func fetch(url string) ([]byte, error) {
 	client := &http.Client{Timeout: 60 * time.Second}

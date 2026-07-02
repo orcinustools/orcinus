@@ -178,6 +178,14 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		}
 	}
 
+	// x-orcinus-rollout needs Argo Rollouts (no options) — auto-install if absent.
+	if needsArgoRollouts(objects) && !plugin.Installed("argo-rollouts") {
+		fmt.Fprintln(cmd.ErrOrStderr(), "installing argo-rollouts (required by x-orcinus-rollout)...")
+		if err := plugin.Install(cmd.Context(), "argo-rollouts", plugin.Options{Kubeconfig: o.kubeconfig}); err != nil {
+			return err
+		}
+	}
+
 	// Apply to the cluster via server-side apply (+ prune + optional wait).
 	cfg, err := deploy.LoadRESTConfig(o.kubeconfig)
 	if err != nil {
@@ -255,6 +263,17 @@ func needsCertManager(objects []runtime.Object) bool {
 			continue
 		}
 		if _, ok := acc.GetAnnotations()["cert-manager.io/cluster-issuer"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// needsArgoRollouts reports whether any object is an Argo Rollout.
+func needsArgoRollouts(objects []runtime.Object) bool {
+	for _, o := range objects {
+		gvk := o.GetObjectKind().GroupVersionKind()
+		if gvk.Group == "argoproj.io" && gvk.Kind == "Rollout" {
 			return true
 		}
 	}

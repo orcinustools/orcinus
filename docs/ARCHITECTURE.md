@@ -140,9 +140,12 @@ compose file ─► pkg/compose.Convert()   (forked loader → transformer → [
 | `volumes` (named) | `PersistentVolumeClaim` | size via `x-orcinus-volume-size` |
 | `environment` / `env_file` | `env` + `ConfigMap`/`Secret` | secrets marked with `x-orcinus-secret` |
 | `deploy.replicas` | `.spec.replicas` | |
+| `deploy.update_config` | `.spec.strategy` + minReadySeconds/progressDeadline | order/parallelism/delay/monitor mapped |
 | `deploy.resources` | `resources.limits/requests` | cpu/memory mapped and unit-tested |
 | `healthcheck` | `livenessProbe` | exec/http probe derived from the compose healthcheck |
 | `x-orcinus-autoscale-*` | `HorizontalPodAutoscaler` | min/max/cpu/memory → HPA for the service |
+| `x-orcinus-strategy` | `.spec.strategy` | rolling (default) / recreate + maxSurge/maxUnavailable |
+| `x-orcinus-rollout` | Argo `Rollout` | canary / bluegreen (replaces the Deployment) |
 | `restart` | `restartPolicy` / managed by controller | |
 | `depends_on` | best-effort apply ordering | no complex readiness guarantee |
 | `networks` | (ignored in v1) | flat Kubernetes networking |

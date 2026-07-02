@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"time"
 
 	"sigs.k8s.io/yaml"
 )
@@ -25,6 +26,12 @@ const (
 	extAutoscaleMax = "x-orcinus-autoscale-max"    // HPA max replicas (enables HPA)
 	extAutoscaleCPU = "x-orcinus-autoscale-cpu"    // HPA target CPU %
 	extAutoscaleMem = "x-orcinus-autoscale-memory" // HPA target memory %
+
+	extStrategy       = "x-orcinus-strategy"        // rolling | recreate
+	extMaxSurge       = "x-orcinus-max-surge"       // rolling: e.g. 25% or 1
+	extMaxUnavailable = "x-orcinus-max-unavailable" // rolling: e.g. 0 or 25%
+
+	extRollout = "x-orcinus-rollout" // canary | bluegreen (Argo Rollout)
 )
 
 // kompose native label keys we translate onto.
@@ -48,6 +55,16 @@ type autoscaleCfg struct {
 	Min, Max, CPU, Memory int
 }
 
+// strategyCfg holds Deployment update-strategy hints for a service, sourced from
+// the standard compose `deploy.update_config` and/or `x-orcinus-*` overrides.
+type strategyCfg struct {
+	Type             string // rolling | recreate
+	MaxSurge         string
+	MaxUnavailable   string
+	MinReadySeconds  int32 // from update_config.delay
+	ProgressDeadline int32 // from update_config.monitor
+}
+
 // preprocessed is the result of translating one compose document.
 type preprocessed struct {
 	// content is the rewritten compose bytes (with kompose.* labels injected).
@@ -59,6 +76,10 @@ type preprocessed struct {
 	ingress map[string]ingressCfg
 	// autoscale maps a service name to HPA hints applied after transform.
 	autoscale map[string]autoscaleCfg
+	// strategy maps a service name to Deployment update-strategy hints.
+	strategy map[string]strategyCfg
+	// rollout maps a service name to an Argo Rollout kind (canary|bluegreen).
+	rollout map[string]string
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
@@ -73,6 +94,8 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		secrets:   map[string][]string{},
 		ingress:   map[string]ingressCfg{},
 		autoscale: map[string]autoscaleCfg{},
+		strategy:  map[string]strategyCfg{},
+		rollout:   map[string]string{},
 	}
 
 	servicesAny, ok := doc["services"].(map[string]interface{})
@@ -150,6 +173,34 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 			out.autoscale[name] = ac
 		}
 
+		// Deployment update strategy: standard compose `deploy.update_config`
+		// first, then x-orcinus-* overrides.
+		var sc strategyCfg
+		parseUpdateConfig(svc, &sc)
+		if v, ok := stringExt(svc[extStrategy]); ok {
+			if v != "rolling" && v != "recreate" {
+				return nil, fmt.Errorf("service %q: invalid %s=%q (want rolling|recreate)", name, extStrategy, v)
+			}
+			sc.Type = v
+		}
+		if v, ok := stringExt(svc[extMaxSurge]); ok {
+			sc.MaxSurge = v
+		}
+		if v, ok := stringExt(svc[extMaxUnavailable]); ok {
+			sc.MaxUnavailable = v
+		}
+		if sc != (strategyCfg{}) {
+			out.strategy[name] = sc
+		}
+
+		// Progressive delivery via Argo Rollout.
+		if v, ok := stringExt(svc[extRollout]); ok {
+			if v != "canary" && v != "bluegreen" {
+				return nil, fmt.Errorf("service %q: invalid %s=%q (want canary|bluegreen)", name, extRollout, v)
+			}
+			out.rollout[name] = v
+		}
+
 		if len(labels) > 0 {
 			svc["labels"] = labels
 		}
@@ -206,6 +257,58 @@ func stringExt(v interface{}) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// parseUpdateConfig maps the standard compose `deploy.update_config` onto the
+// Kubernetes rolling-update knobs:
+//
+//	order: start-first → maxSurge=parallelism, maxUnavailable=0
+//	order: stop-first  → maxSurge=0, maxUnavailable=parallelism   (compose default)
+//	parallelism        → the count for the active knob (default 1)
+//	delay              → minReadySeconds
+//	monitor            → progressDeadlineSeconds
+func parseUpdateConfig(svc map[string]interface{}, sc *strategyCfg) {
+	deploy, ok := svc["deploy"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	uc, ok := deploy["update_config"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	parallelism := 1
+	if n, ok := intExt(uc["parallelism"]); ok && n > 0 {
+		parallelism = n
+	}
+	order, _ := stringExt(uc["order"]) // default (empty) == stop-first
+	sc.Type = "rolling"
+	if order == "start-first" {
+		sc.MaxSurge = fmt.Sprintf("%d", parallelism)
+		sc.MaxUnavailable = "0"
+	} else {
+		sc.MaxSurge = "0"
+		sc.MaxUnavailable = fmt.Sprintf("%d", parallelism)
+	}
+	if v, ok := stringExt(uc["delay"]); ok {
+		if s, ok := durationSeconds(v); ok {
+			sc.MinReadySeconds = s
+		}
+	}
+	if v, ok := stringExt(uc["monitor"]); ok {
+		if s, ok := durationSeconds(v); ok {
+			sc.ProgressDeadline = s
+		}
+	}
+}
+
+// durationSeconds parses a compose duration ("10s", "1m30s") to whole seconds.
+func durationSeconds(s string) (int32, bool) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, false
+	}
+	return int32(d.Seconds()), true
 }
 
 func intExt(v interface{}) (int, bool) {
