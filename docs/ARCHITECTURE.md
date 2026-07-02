@@ -1,8 +1,9 @@
 # Orcinus — Architecture
 
-> A lightweight Kubernetes distribution that *natively* understands
-> `docker-compose.yml`. One binary runs a cluster **and** deploys your compose
-> files to it — no hand-written Kubernetes manifests required.
+> **Compose-simple. Cluster-strong.** A lightweight cluster runtime that runs your
+> `docker-compose.yml` files and Kubernetes manifests natively — no translation,
+> no drama. One binary runs a cluster **and** deploys your compose files to it —
+> no hand-written Kubernetes manifests required.
 >
 > **Language:** Go (no CGO). **License:** MIT (see [§8](#8-licensing--attribution)).
 > **Strategy:** run a lightweight Kubernetes runtime (managed by a container

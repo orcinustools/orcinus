@@ -1,5 +1,6 @@
-// Command orcinus is a single, multicall binary: a lightweight Kubernetes
-// distribution that natively understands docker-compose.
+// Command orcinus is a single, multicall binary — Compose-simple, Cluster-strong:
+// a lightweight cluster runtime that runs docker-compose files and Kubernetes
+// manifests natively, no translation.
 package main
 
 import (

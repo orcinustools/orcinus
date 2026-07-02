@@ -13,7 +13,7 @@ import (
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "orcinus",
-		Short:         "Lightweight Kubernetes that natively understands docker-compose",
+		Short:         "Compose-simple. Cluster-strong. Run docker-compose files and Kubernetes manifests natively.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

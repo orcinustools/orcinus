@@ -1,8 +1,9 @@
-# Orcinus
+# Orcinus — Compose-simple. Cluster-strong.
 
-A lightweight Kubernetes distribution that **natively understands
-`docker-compose.yml`**. One binary: run a cluster *and* deploy your compose files
-to it, no hand-written Kubernetes manifests required.
+A lightweight cluster runtime that runs your **`docker-compose.yml` files and
+Kubernetes manifests natively — no translation, no drama.** One binary: run a
+cluster *and* deploy your compose files to it, no hand-written Kubernetes
+manifests required.
 
 - **Architecture & design:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
 - **CLI usage guide:** [`docs/USAGE.md`](./docs/USAGE.md)
