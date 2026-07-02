@@ -248,6 +248,71 @@ services:
 	}
 }
 
+// TestLiveSecret: create/ls/rm a generic secret via the CLI.
+func TestLiveSecret(t *testing.T) {
+	requireLive(t)
+	orcinus, kubectl := liveCluster(t, "orcinus-sec", 16481)
+	if out, err := orcinus("secret", "create", "app-config", "--from-literal", "FOO=bar", "--from-literal", "BAZ=qux"); err != nil {
+		t.Fatalf("secret create: %v\n%s", err, out)
+	}
+	if got, _ := kubectl("get", "secret", "app-config", "-o", "jsonpath={.data.FOO}"); got == "" {
+		t.Errorf("secret app-config missing key FOO")
+	}
+	if out, _ := orcinus("secret", "ls"); !strings.Contains(out, "app-config") {
+		t.Errorf("secret ls missing app-config:\n%s", out)
+	}
+	if out, err := orcinus("secret", "rm", "app-config"); err != nil {
+		t.Fatalf("secret rm: %v\n%s", err, out)
+	}
+	if _, err := kubectl("get", "secret", "app-config"); err == nil {
+		t.Errorf("secret app-config should be gone")
+	}
+}
+
+// TestLiveCustomCert: a bring-your-own TLS cert (secret create-tls) served via
+// Ingress with x-orcinus-tls-secret — no external domain needed (uses --resolve).
+func TestLiveCustomCert(t *testing.T) {
+	requireLive(t)
+	orcinus, _ := liveCluster(t, "orcinus-cc", 16482, "--http-port", "8081", "--https-port", "8444")
+
+	// Generate a self-signed cert for cc.local.
+	dir := t.TempDir()
+	cert, key := dir+"/tls.crt", dir+"/tls.key"
+	if out, err := runcOut("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+		"-keyout", key, "-out", cert, "-days", "2",
+		"-subj", "/CN=cc.local", "-addext", "subjectAltName=DNS:cc.local"); err != nil {
+		t.Fatalf("openssl: %v\n%s", err, out)
+	}
+	if out, err := orcinus("secret", "create-tls", "cc-cert", "--cert", cert, "--key", key); err != nil {
+		t.Fatalf("secret create-tls: %v\n%s", err, out)
+	}
+
+	f := writeCompose(t, `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: cc.local
+    x-orcinus-tls-secret: cc-cert
+`)
+	if out, err := orcinus("deploy", "-f", f, "--project", "cc"); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out)
+	}
+
+	// HTTPS on 8444 must serve our self-signed cert (issuer CN=cc.local),
+	// not Traefik's default.
+	waitFor(t, 90*time.Second, "custom cert served", func() bool {
+		out, err := runcOut("bash", "-lc",
+			"echo | openssl s_client -connect 127.0.0.1:8444 -servername cc.local 2>/dev/null | openssl x509 -noout -issuer")
+		return err == nil && strings.Contains(out, "cc.local")
+	})
+	// And the app is reachable over that TLS.
+	if out, err := runcOut("curl", "-sk", "--resolve", "cc.local:8444:127.0.0.1", "-m", "10", "https://cc.local:8444/"); err != nil || !strings.Contains(out, "nginx") {
+		t.Fatalf("https via custom cert failed: %v\n%s", err, out)
+	}
+}
+
 func pluginInstalled(orcinus func(args ...string) (string, error), name string) bool {
 	out, _ := orcinus("plugin", "list")
 	for _, line := range strings.Split(out, "\n") {
