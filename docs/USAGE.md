@@ -291,82 +291,24 @@ orcinus deploy -f docker-compose.yml --dry-run -o out/   # write manifests to a 
 
 #### Deployment strategies
 
-Each service becomes a Deployment with a Kubernetes update strategy:
+Each service becomes a Deployment with a rolling update by default. You can:
 
-- **`rolling`** (default) — zero-downtime, gradual rollout. Tune with
-  `x-orcinus-max-surge` / `x-orcinus-max-unavailable`.
-- **`recreate`** — stop all old pods, then start new ones (brief downtime; use
-  when two versions can't run at once).
-
-**Swarm-native:** orcinus also reads the standard compose
-[`deploy.update_config`](https://docs.docker.com/reference/compose-file/deploy/#update_config)
-and maps it to the Kubernetes rolling update:
-
-| `update_config` | → Kubernetes |
-|---|---|
-| `order: start-first` | `maxSurge=parallelism`, `maxUnavailable=0` |
-| `order: stop-first` (default) | `maxSurge=0`, `maxUnavailable=parallelism` |
-| `parallelism` | the count for the active knob (default 1) |
-| `delay` | `minReadySeconds` |
-| `monitor` | `progressDeadlineSeconds` |
+- tune it via the standard compose `deploy.update_config`,
+- switch to `recreate` via `x-orcinus-strategy`, or
+- do **canary / blue-green** via `x-orcinus-rollout` (Argo Rollouts,
+  auto-installed).
 
 ```yaml
 services:
   web:
     image: myapp:2
     ports: ["80"]
-    deploy:
-      update_config:
-        order: start-first     # start new before stopping old (no capacity dip)
-        parallelism: 2
-        delay: 10s
-        monitor: 60s
+    x-orcinus-rollout: canary            # or: bluegreen
 ```
 
-The `x-orcinus-strategy` / `x-orcinus-max-*` keys override `update_config` when
-both are present, and add `recreate` (which Swarm expresses as `order: stop-first`
-with parallelism = replicas):
-
-```yaml
-services:
-  web:
-    image: myapp:2
-    x-orcinus-strategy: rolling
-    x-orcinus-max-surge: "25%"
-    x-orcinus-max-unavailable: "0"     # never drop below desired capacity
-  migrator:
-    image: myapp:2
-    x-orcinus-strategy: recreate
-```
-
-> Not mapped: `update_config.failure_action: rollback` (Kubernetes Deployments
-> don't auto-roll-back a bad update) and `max_failure_ratio`. Progressive
-> delivery (blue-green/canary) is roadmap — see below.
-
-#### Progressive delivery (canary & blue-green)
-
-For canary or blue-green, set `x-orcinus-rollout` on the service. Orcinus then
-emits an **Argo Rollout** instead of a Deployment, and **auto-installs the
-`argo-rollouts` plugin** on first use.
-
-```yaml
-services:
-  web:
-    image: myapp:2
-    ports: ["80"]
-    x-orcinus-rollout: canary       # gradual: setWeight 50% → pause → 100%
-  api:
-    image: myapp:2
-    ports: ["8080"]
-    x-orcinus-rollout: bluegreen    # spin up green, then flip the Service
-```
-
-- **canary** — shifts traffic/replicas in steps (default: 50% → 15s pause → 100%).
-- **bluegreen** — brings up the new version, then switches the service to it
-  (requires a `ports:` entry so there is a Service to flip; auto-promotes).
-
-Inspect with `kubectl get rollout` (or the Argo Rollouts kubectl plugin). An HPA
-from `x-orcinus-autoscale-*` automatically targets the Rollout.
+**Full guide → [`DEPLOYMENT.md`](./DEPLOYMENT.md)** (update_config mapping,
+recreate, canary/blue-green, and what isn't mapped). The relevant `x-orcinus-*`
+keys are in [Appendix B](#appendix-b--x-orcinus--extension-reference).
 
 ### 5.6 `orcinus rm`
 

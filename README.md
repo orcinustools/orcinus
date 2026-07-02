@@ -6,6 +6,7 @@ to it, no hand-written Kubernetes manifests required.
 
 - **Architecture & design:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
 - **CLI usage guide:** [`docs/USAGE.md`](./docs/USAGE.md)
+- **Deployment & update strategies:** [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 - **Cluster setup (single / multi-node / HA):** [`docs/CLUSTER.md`](./docs/CLUSTER.md)
 - **Plugins & cluster add-ons:** [`docs/PLUGINS.md`](./docs/PLUGINS.md)
 - **High-availability storage:** [`docs/HA-STORAGE.md`](./docs/HA-STORAGE.md)
