@@ -189,6 +189,8 @@ orcinus cluster init [flags]
 | `--cluster-init` | `false` | Embedded etcd (HA mode) — see [§6](#6-datastore) |
 | `--datastore-endpoint <str>` | SQLite | External datastore — see [§6](#6-datastore) |
 | `--kubeconfig <path>` | `~/.orcinus/kubeconfig` | Where to write the kubeconfig |
+| `--runtime <docker\|embedded>` | `docker` | Runtime provider — see the note below |
+| `--server-arg <arg>` | — | Extra runtime server argument (repeatable), e.g. `--server-arg --snapshotter=native` |
 
 ```bash
 orcinus cluster init                              # safe default: API bound to 127.0.0.1
@@ -197,6 +199,15 @@ orcinus cluster init --advertise 10.0.0.5         # reachable by remote nodes/cl
 ```
 
 On success it prints the kubeconfig path and a ready-to-paste `orcinus cluster join …`.
+
+> **Runtime provider (`--runtime`).** The default `docker` provider runs the
+> cluster in a container — no privileges beyond a container runtime, works
+> anywhere. The `embedded` provider runs the runtime **natively on the host** as
+> a managed process with **no container runtime required** — a single
+> self-contained binary. It is opt-in: only the binary built with
+> `make orcinus-embedded` has the runtime built in (the default binary returns a
+> clear error). It needs root and a real host (systemd-style cgroups). See
+> [CLUSTER.md → Runtime providers](CLUSTER.md#runtime-providers).
 
 > **Networking & security.** By default the API server is published on
 > `127.0.0.1` only — reachable from this machine, not the network. This is the

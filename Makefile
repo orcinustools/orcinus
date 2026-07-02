@@ -9,7 +9,7 @@ LDFLAGS := -X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.GitCom
 
 GORELEASER ?= goreleaser
 
-.PHONY: all build test e2e e2e-live e2e-tls tidy lint clean dist snapshot release-check
+.PHONY: all build test e2e e2e-live e2e-tls e2e-embed orcinus-embedded runtime-asset tidy lint clean dist snapshot release-check
 
 all: build
 
@@ -34,6 +34,27 @@ e2e-live:
 #   make e2e-tls ORCINUS_E2E_DOMAIN=example.com ORCINUS_E2E_DOCKER="sudo docker"
 e2e-tls:
 	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLiveIngressTLS -v -timeout 15m
+
+# The embedded runtime asset (downloaded once into pkg/runtime/assets, gitignored).
+# Both the embedded orcinus binary and the spike embed it via go:embed + -tags.
+RUNTIME_VERSION ?= v1.31.5+k3s1
+runtime-asset:
+	@test -f pkg/runtime/assets/k3s || ( mkdir -p pkg/runtime/assets && \
+	  curl -fsSL -o pkg/runtime/assets/k3s \
+	  https://github.com/k3s-io/k3s/releases/download/$(RUNTIME_VERSION)/k3s && \
+	  chmod +x pkg/runtime/assets/k3s )
+
+# The full orcinus binary WITH the embedded runtime built in. It can both drive
+# a cluster (`orcinus cluster init --runtime embedded`) and BE the runtime
+# (`orcinus runtime server ...`) — a single self-contained binary. Opt-in via
+# -tags so the default `orcinus` binary stays lean.
+orcinus-embedded: runtime-asset
+	CGO_ENABLED=0 $(GO) build -ldflags "$(LDFLAGS)" -tags embedruntime -o bin/orcinus-embedded ./cmd/orcinus
+
+# Live e2e for the embedded runtime (runs `orcinus runtime server` in a clean
+# container as a bare host, verifying the embed+exec path).
+e2e-embed: orcinus-embedded
+	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLiveEmbeddedRuntime -v -timeout 15m
 
 tidy:
 	$(GO) mod tidy

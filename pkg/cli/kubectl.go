@@ -21,6 +21,17 @@ func newKubectlCmd() *cobra.Command {
 		Short:              "Run kubectl against the orcinus cluster (passthrough)",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// An embedded-runtime cluster has no container and may have no host
+			// kubectl; use the runtime's own built-in kubectl.
+			if st, err := cluster.LoadState(); err == nil && st.Runtime == "embedded" {
+				if bin, ok := cluster.EmbeddedKubectl(); ok {
+					argv := append([]string{bin, "kubectl"}, args...)
+					c := exec.Command(argv[0], argv[1:]...)
+					c.Env = append(os.Environ(), "KUBECONFIG="+st.KubeconfigPath)
+					c.Stdin, c.Stdout, c.Stderr = os.Stdin, cmd.OutOrStdout(), cmd.ErrOrStderr()
+					return c.Run()
+				}
+			}
 			// Prefer a locally-installed kubectl.
 			if bin, err := exec.LookPath("kubectl"); err == nil {
 				c := exec.Command(bin, args...)

@@ -11,6 +11,7 @@ For the full command/flag reference see [`USAGE.md`](./USAGE.md).
 
 - [Concepts](#concepts)
 - [Prerequisites](#prerequisites)
+- [Runtime providers](#runtime-providers)
 - [Topology 1 — Single node](#topology-1--single-node)
 - [Topology 2 — One master + workers](#topology-2--one-master--workers)
 - [Topology 3 — HA: multiple masters + workers](#topology-3--ha-multiple-masters--workers)
@@ -44,10 +45,68 @@ For the full command/flag reference see [`USAGE.md`](./USAGE.md).
 
 ## Prerequisites
 
-- A container runtime on each host. The docker command is taken from
-  `$ORCINUS_DOCKER` (default `docker`; e.g. `sudo docker`).
+- A container runtime on each host (for the default `docker` provider). The
+  docker command is taken from `$ORCINUS_DOCKER` (default `docker`; e.g. `sudo
+  docker`). The `embedded` provider needs **no** container runtime — see below.
 - Network reachability between hosts on the API port (default `6443`) for
   multi-node setups, and a firewall you trust.
+
+---
+
+## Runtime providers
+
+`orcinus cluster init` supports two runtime providers via `--runtime`:
+
+| Provider | How it runs | Needs | Best for |
+|---|---|---|---|
+| `docker` (default) | Cluster runs inside a container | A container runtime | Dev, CI, homelab, most setups |
+| `embedded` | Runtime runs **natively on the host** as a managed process | Root + a real host (systemd-style cgroups) | Bare-metal / edge with **no container runtime** |
+
+### `docker` (default)
+
+Nothing special — this is the container-backed path used throughout this guide.
+
+```bash
+orcinus cluster init
+```
+
+### `embedded` — single self-contained binary
+
+The runtime is compiled **into** the orcinus binary (`go:embed`), so one binary
+both drives the cluster and *is* the runtime. There is no container runtime and
+no image pull.
+
+It is **opt-in at build time**: only the binary built with `make orcinus-embedded`
+has the runtime built in. The normal `orcinus` binary returns a clear error if you
+pass `--runtime embedded`, keeping the default binary small.
+
+```bash
+# Build the embedded binary (downloads the runtime asset once, then embeds it).
+make orcinus-embedded
+
+# Start a native cluster — no container runtime involved. Needs root.
+sudo ./bin/orcinus-embedded cluster init --runtime embedded --port 6443
+
+# Pass extra runtime server flags with --server-arg (repeatable):
+sudo ./bin/orcinus-embedded cluster init --runtime embedded \
+  --server-arg --disable=traefik --server-arg --disable=servicelb
+
+# The same binary is also the runtime's kubectl:
+sudo ./bin/orcinus-embedded kubectl get nodes
+
+# Tear down (stops the process, unmounts, clears state):
+sudo ./bin/orcinus-embedded cluster down
+```
+
+**Notes & limits.**
+- Needs **root** — the native runtime manages cgroups, iptables and mounts.
+- Needs a **real host** with cgroup delegation (systemd-style). Running it
+  *nested inside another container* hits a cgroup-v2 delegation limit; use the
+  `docker` provider there instead.
+- State lives under `~/.orcinus/runtime/<name>/` (of the user that ran it — i.e.
+  `/root/.orcinus` under `sudo`), separate from any `docker`-provider cluster.
+- `orcinus cluster down` reaps the server plus its containerd shims and unmounts
+  everything it created, leaving no residue.
 
 ---
 

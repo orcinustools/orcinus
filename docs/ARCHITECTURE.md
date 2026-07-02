@@ -4,12 +4,13 @@
 > `docker-compose.yml`. One self-contained binary runs a cluster **and** deploys
 > your compose files to it — no hand-written Kubernetes manifests required.
 >
-> **Status:** M0–M3 implemented and tested (cluster runtime via a runtime-manager
-> provider); a fully in-binary embed is a future option.
+> **Status:** M0–M7 implemented and tested. Cluster runtime ships via a
+> runtime-manager provider; a self-contained single-binary embed is validated as
+> an opt-in build (see §9, M3).
 > **Implementation language:** Go.
-> **Strategy:** a Go project that embeds a lightweight Kubernetes runtime as a
-> library, and **forks kompose** so compose conversion is fully Docker Compose
-> compatible and entirely under orcinus's control.
+> **Strategy:** a Go project that runs a lightweight Kubernetes runtime (managed
+> by default, embeddable as a single binary), and **forks kompose** so compose
+> conversion is fully Docker Compose compatible and entirely under orcinus's control.
 
 ---
 
@@ -194,11 +195,34 @@ manifests with ownership labels and `x-orcinus-*` support. Unit + offline e2e.
 prune + `--wait`; `orcinus deploy` and `orcinus rm` work against a kubeconfig.
 Covered by a live single-node e2e that boots a real cluster in a container.
 
-**M3 — Cluster runtime. ✅** `orcinus cluster init` provisions a single-node cluster and
-writes `~/.orcinus/kubeconfig`; `orcinus cluster join` adds nodes (reads saved cluster
-state). Implemented as a runtime-manager provider (container-backed; docker
-command from `$ORCINUS_DOCKER`). Covered by a live cluster e2e (init → join(2
-nodes) → deploy → ls → ps → rm). A fully in-binary embed remains a future option.
+**M3 — Cluster runtime. ✅** `orcinus cluster init` provisions a single-node cluster
+and writes `~/.orcinus/kubeconfig`; `orcinus cluster join` adds nodes. Default is a
+**runtime-manager provider** (container-backed; docker command from
+`$ORCINUS_DOCKER`). Covered by live cluster e2e (init → join(2 nodes) → deploy →
+ls → ps → rm).
+
+`orcinus cluster init` takes a `--runtime` flag selecting one of two providers:
+
+1. **`docker` (default, shipped):** orcinus drives a container-based runtime. No
+   CGO, tiny binary, works anywhere a container runtime runs. This is the default
+   and the fully-tested path.
+2. **`embedded` (opt-in, native):** the runtime is bundled into the orcinus
+   binary via `go:embed` (`pkg/runtime`) and run **natively on the host as a
+   managed process** — a dedicated runtime with **no container runtime needed**.
+   Maintenance is trivial (bump the embedded version). It is compiled only into a
+   dedicated binary (build tag `embedruntime`, `make orcinus-embedded`) so the
+   default `orcinus` binary stays lean; without that build, `--runtime embedded`
+   returns a clear "not compiled in" error.
+
+   Validated end-to-end on a real host: `orcinus cluster init --runtime embedded`
+   → node Ready → workload Running → `orcinus cluster down` tears everything down
+   (server, containerd shims, mounts, state) with no residue, and `orcinus kubectl`
+   routes through the runtime's built-in kubectl. `TestLiveEmbeddedRuntime` also
+   proves the embed-and-exec mechanism in CI. The native provider needs a real host
+   with cgroup delegation (systemd-style); running it *nested inside another
+   container* hits a cgroup-v2 delegation limit that does not occur on a real host.
+   A true in-binary *library import* (RKE2-style, no exec) remains the heavy,
+   unchosen alternative.
 
 **M4 — Unified experience. ✅ (partial)** After `init`, all cluster commands use
 the orcinus-managed kubeconfig automatically — no `--kubeconfig` needed. `deploy`

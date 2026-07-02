@@ -37,6 +37,7 @@ type InitOptions struct {
 	DatastoreEndpoint string   // external datastore
 	ExtraServerArgs   []string // additional runtime server args
 	KubeconfigPath    string   // where to write the kubeconfig (default: ~/.orcinus/kubeconfig)
+	Runtime           string   // "docker" (default) or "embedded" (native, built-in runtime)
 }
 
 // InitResult is returned after a successful init.
@@ -47,6 +48,7 @@ type InitResult struct {
 	Token          string `json:"token"`
 	APIPort        int    `json:"apiPort"`
 	KubeconfigPath string `json:"kubeconfig"`
+	Runtime        string `json:"runtime,omitempty"` // "docker" (default) or "embedded"
 }
 
 // JoinOptions configures `orcinus join`.
@@ -71,6 +73,17 @@ func Init(o InitOptions) (*InitResult, error) {
 	}
 	if o.KubeconfigPath == "" {
 		o.KubeconfigPath = KubeconfigPath()
+	}
+	if o.Runtime == "" {
+		o.Runtime = "docker"
+	}
+	// The embedded runtime runs the built-in Kubernetes server natively on this
+	// host (no container runtime). It is a separate provider path.
+	if o.Runtime == "embedded" {
+		return initEmbedded(o)
+	}
+	if o.Runtime != "docker" {
+		return nil, fmt.Errorf("unknown --runtime %q (want: docker|embedded)", o.Runtime)
 	}
 	if o.BindAddress == "" {
 		o.BindAddress = "127.0.0.1"
@@ -173,6 +186,7 @@ func Init(o InitOptions) (*InitResult, error) {
 		Token:          strings.TrimSpace(token),
 		APIPort:        o.APIPort,
 		KubeconfigPath: o.KubeconfigPath,
+		Runtime:        "docker",
 	}
 	if err := saveState(res); err != nil {
 		return nil, err
@@ -256,6 +270,14 @@ func Status(name string) (*StatusResult, error) {
 	if name == "" {
 		name = st.Name
 	}
+	if st.Runtime == "embedded" {
+		running := embeddedRunning(name)
+		res := &StatusResult{State: st, Running: running}
+		if running {
+			res.Nodes = embeddedNodes(st.KubeconfigPath)
+		}
+		return res, nil
+	}
 	_, running := containerState(name)
 	res := &StatusResult{State: st, Running: running}
 	if running {
@@ -269,12 +291,17 @@ func Status(name string) (*StatusResult, error) {
 // Down stops and removes the cluster (server + all joined nodes) and clears the
 // saved kubeconfig/state.
 func Down(name string) (int, error) {
+	st, stErr := LoadState()
 	if name == "" {
-		if st, err := LoadState(); err == nil {
+		if stErr == nil {
 			name = st.Name
 		} else {
 			name = DefaultName
 		}
+	}
+	// Embedded clusters are native host processes, not containers.
+	if stErr == nil && st.Runtime == "embedded" {
+		return downEmbedded(name)
 	}
 
 	removed := 0
