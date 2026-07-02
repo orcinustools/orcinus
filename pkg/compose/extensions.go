@@ -23,6 +23,9 @@ const (
 	extPort         = "x-orcinus-port"          // service port the ingress routes to
 	extIngressClass = "x-orcinus-ingress-class" // ingress class (e.g. traefik, nginx)
 
+	extStripPrefix = "x-orcinus-strip-prefix" // Traefik StripPrefix: true (strip the path) | prefix | list of prefixes
+	extMiddleware  = "x-orcinus-middleware"   // Traefik middleware name(s) to attach to the ingress route (in order)
+
 	extAutoscaleMin = "x-orcinus-autoscale-min"    // HPA min replicas
 	extAutoscaleMax = "x-orcinus-autoscale-max"    // HPA max replicas (enables HPA)
 	extAutoscaleCPU = "x-orcinus-autoscale-cpu"    // HPA target CPU %
@@ -50,6 +53,17 @@ type ingressCfg struct {
 	Path      string
 	Port      int
 	Class     string
+
+	// Traefik middleware wiring (Traefik is the runtime's native ingress).
+	StripFromPath bool     // strip-prefix: true → auto-strip the ingress path prefix
+	StripPrefixes []string // explicit prefixes to strip (generates a StripPrefix Middleware)
+	Middlewares   []string // existing Traefik middleware names to attach (in order)
+}
+
+// isSet reports whether any ingress hint was provided.
+func (c ingressCfg) isSet() bool {
+	return c.TLS != "" || c.TLSSecret != "" || c.Path != "" || c.Class != "" || c.Port != 0 ||
+		c.StripFromPath || len(c.StripPrefixes) > 0 || len(c.Middlewares) > 0
 }
 
 // autoscaleCfg holds HPA hints for a service.
@@ -156,7 +170,21 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		if v, ok := intExt(svc[extPort]); ok {
 			ic.Port = v
 		}
-		if ic != (ingressCfg{}) {
+		// Traefik StripPrefix: true → strip the ingress path; string/list → strip those prefixes.
+		switch t := svc[extStripPrefix].(type) {
+		case bool:
+			ic.StripFromPath = t
+		case string:
+			if t != "" {
+				ic.StripPrefixes = []string{t}
+			}
+		case []interface{}:
+			ic.StripPrefixes = stringSliceExt(t)
+		}
+		if mws := stringSliceExt(svc[extMiddleware]); len(mws) > 0 {
+			ic.Middlewares = mws
+		}
+		if ic.isSet() {
 			out.ingress[name] = ic
 		}
 

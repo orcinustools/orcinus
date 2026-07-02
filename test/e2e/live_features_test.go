@@ -288,6 +288,50 @@ services:
 	}
 }
 
+// TestLiveTraefikMiddleware: x-orcinus-strip-prefix generates a StripPrefix
+// Middleware and x-orcinus-middleware attaches a named one — both honored by the
+// runtime's native Traefik. Verified through Traefik: /api/hello reaches the
+// backend as /hello (stripped) and carries the header our middleware injects.
+func TestLiveTraefikMiddleware(t *testing.T) {
+	requireLive(t)
+	orcinus, kubectl := liveCluster(t, "orcinus-mw", 16484, "--http-port", "8083")
+	f := writeCompose(t, `
+services:
+  whoami:
+    image: traefik/whoami:v1.10
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: mw.test
+    x-orcinus-path: /api
+    x-orcinus-strip-prefix: true
+    x-orcinus-middleware: [add-header]
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: add-header
+spec:
+  headers:
+    customResponseHeaders:
+      X-Orcinus-Test: "ok"
+`)
+	if out, err := orcinus("deploy", "-f", f, "--project", "mw", "--wait"); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out)
+	}
+	// The auto StripPrefix Middleware CRD (traefik.io/v1alpha1) was generated.
+	if out, err := kubectl("get", "middleware.traefik.io", "whoami-stripprefix"); err != nil {
+		t.Fatalf("stripprefix middleware missing: %v\n%s", err, out)
+	}
+	// Through Traefik: prefix stripped (backend sees /hello) AND our header present.
+	waitFor(t, 120*time.Second, "strip-prefix + middleware active via Traefik", func() bool {
+		out, err := runcOut("curl", "-si", "-m", "10", "-H", "Host: mw.test", "http://127.0.0.1:8083/api/hello")
+		if err != nil {
+			return false
+		}
+		return strings.Contains(out, "GET /hello ") && strings.Contains(out, "X-Orcinus-Test: ok")
+	})
+}
+
 // TestLiveSecret: create/ls/rm a generic secret via the CLI.
 func TestLiveSecret(t *testing.T) {
 	requireLive(t)

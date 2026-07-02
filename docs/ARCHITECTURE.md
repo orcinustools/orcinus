@@ -194,8 +194,10 @@ services:
 
 Additional keys cover autoscaling (`x-orcinus-autoscale-{min,max,cpu,memory}`),
 deployment strategy (`x-orcinus-strategy`, `x-orcinus-max-surge`,
-`x-orcinus-max-unavailable`) and progressive delivery (`x-orcinus-rollout`). See
-[USAGE.md](USAGE.md) and [DEPLOYMENT.md](DEPLOYMENT.md) for the full set.
+`x-orcinus-max-unavailable`), progressive delivery (`x-orcinus-rollout`), and
+Traefik ingress middlewares (`x-orcinus-strip-prefix`, `x-orcinus-middleware`).
+See [USAGE.md](USAGE.md), [DEPLOYMENT.md](DEPLOYMENT.md) and
+[INGRESS.md](INGRESS.md) for the full set.
 
 ---
 

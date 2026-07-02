@@ -1,0 +1,118 @@
+# Traefik middlewares — the runtime's native ingress controller.
+#
+# This single file mixes a compose service with raw Traefik `Middleware` CRDs
+# (orcinus deploy classifies each YAML document independently). It shows:
+#   - path routing + prefix stripping   (x-orcinus-strip-prefix)
+#   - attaching middlewares by name      (x-orcinus-middleware)
+#   - common middleware kinds            (rate limit, secure headers, compress,
+#     basic auth, redirect-to-https)
+# The full catalog (CORS, auth, path rewrite, IP allowlist, chain, …) is in
+# docs/INGRESS.md.
+#
+# Deploy:
+#   orcinus deploy -f orcinus.yml --wait
+#   curl -H "Host: shop.example.com" http://<cluster>/api/     # served, prefix stripped
+#
+# Notes:
+#   - Traefik ships enabled by default; these use apiVersion traefik.io/v1alpha1.
+#   - The router.middlewares annotation orcinus writes is namespace-qualified,
+#     e.g. `default-api-stripprefix@kubernetescrd`. Middlewares referenced by
+#     x-orcinus-middleware must exist in the same namespace as the service.
+#   - See docs/INGRESS.md for the full middleware catalog.
+
+services:
+  # The app is exposed at /api but the container serves from / — strip the prefix.
+  # Then a rate limiter, security headers and gzip are applied, in that order.
+  api:
+    image: nginxdemos/hello:latest
+    ports:
+      - "80"
+    x-orcinus-expose: ingress
+    x-orcinus-host: shop.example.com          # ← change to your host
+    x-orcinus-path: /api
+    x-orcinus-strip-prefix: true              # auto-generates api-stripprefix (StripPrefix)
+    x-orcinus-middleware:                      # attached after strip-prefix, in order
+      - ratelimit
+      - secure-headers
+      - gzip
+
+  # A second app behind HTTP basic auth and forced HTTPS redirect.
+  admin:
+    image: nginxdemos/hello:latest
+    ports:
+      - "80"
+    x-orcinus-expose: ingress
+    x-orcinus-host: admin.example.com          # ← change to your host
+    x-orcinus-middleware:
+      - https-redirect
+      - dashboard-auth
+
+---
+# --- Traefik Middleware CRDs (referenced by name above) ---
+
+# Rate limit: average 50 req/s, bursts up to 100.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: ratelimit
+spec:
+  rateLimit:
+    average: 50
+    burst: 100
+
+---
+# Security headers (HSTS, no-sniff, frame deny, referrer policy).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: secure-headers
+spec:
+  headers:
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    contentTypeNosniff: true
+    browserXssFilter: true
+    frameDeny: true
+    referrerPolicy: same-origin
+
+---
+# Gzip/deflate compression for compressible responses.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gzip
+spec:
+  compress: {}
+
+---
+# Redirect all HTTP to HTTPS (permanent).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: https-redirect
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+
+---
+# HTTP basic auth. The secret holds `users` = htpasswd lines (bcrypt/md5/sha1).
+# Create it with: htpasswd -nbB admin 's3cret' | base64
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: dashboard-auth
+spec:
+  basicAuth:
+    secret: dashboard-users
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dashboard-users
+type: Opaque
+stringData:
+  # admin / s3cret  — REPLACE with your own `htpasswd -nbB user pass` output.
+  users: |
+    admin:$2y$05$xh4E2Q0m0Q0m0Q0m0Q0m0eKQ0m0Q0m0Q0m0Q0m0Q0m0Q0m0Q0m0

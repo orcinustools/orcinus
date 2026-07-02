@@ -433,3 +433,80 @@ func TestConvertIngress(t *testing.T) {
 	}
 	t.Error("expected an Ingress from x-orcinus-expose: ingress")
 }
+
+// TestConvertTraefikMiddleware: x-orcinus-strip-prefix generates a StripPrefix
+// Middleware CRD and the router.middlewares annotation lists strip-prefix first,
+// then the named middlewares, in order and namespace-qualified.
+func TestConvertTraefikMiddleware(t *testing.T) {
+	const f = `
+services:
+  api:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: shop.example.com
+    x-orcinus-path: /api
+    x-orcinus-strip-prefix: true
+    x-orcinus-middleware: [ratelimit, secure-headers]
+`
+	objs := convertString(t, f) // Namespace "demo"
+
+	var ing *networkingv1.Ingress
+	var strip *unstructured.Unstructured
+	for _, o := range objs {
+		switch t := o.(type) {
+		case *networkingv1.Ingress:
+			ing = t
+		case *unstructured.Unstructured:
+			if t.GetKind() == "Middleware" {
+				strip = t
+			}
+		}
+	}
+	if ing == nil {
+		t.Fatal("no Ingress generated")
+	}
+	got := ing.Annotations["traefik.ingress.kubernetes.io/router.middlewares"]
+	want := "demo-api-stripprefix@kubernetescrd,demo-ratelimit@kubernetescrd,demo-secure-headers@kubernetescrd"
+	if got != want {
+		t.Errorf("router.middlewares = %q, want %q", got, want)
+	}
+	if strip == nil {
+		t.Fatal("no StripPrefix Middleware CRD generated")
+	}
+	if strip.GetAPIVersion() != "traefik.io/v1alpha1" {
+		t.Errorf("middleware apiVersion = %q", strip.GetAPIVersion())
+	}
+	prefixes, _, _ := unstructured.NestedStringSlice(strip.Object, "spec", "stripPrefix", "prefixes")
+	if len(prefixes) != 1 || prefixes[0] != "/api" {
+		t.Errorf("stripPrefix prefixes = %v, want [/api]", prefixes)
+	}
+	if strip.GetLabels()[LabelManagedBy] != ManagedByValue {
+		t.Errorf("middleware missing ownership label")
+	}
+}
+
+// TestConvertStripPrefixExplicit: an explicit prefix list is used verbatim.
+func TestConvertStripPrefixExplicit(t *testing.T) {
+	const f = `
+services:
+  api:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: shop.example.com
+    x-orcinus-strip-prefix: ["/v1", "/v2"]
+`
+	for _, o := range convertString(t, f) {
+		u, ok := o.(*unstructured.Unstructured)
+		if !ok || u.GetKind() != "Middleware" {
+			continue
+		}
+		prefixes, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "stripPrefix", "prefixes")
+		if len(prefixes) != 2 || prefixes[0] != "/v1" || prefixes[1] != "/v2" {
+			t.Fatalf("prefixes = %v, want [/v1 /v2]", prefixes)
+		}
+		return
+	}
+	t.Fatal("no StripPrefix Middleware generated")
+}

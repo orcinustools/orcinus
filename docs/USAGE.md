@@ -641,6 +641,8 @@ keys; orcinus parses them during conversion.
 | `x-orcinus-path` | path (default `/`) | Ingress path |
 | `x-orcinus-port` | port number | Which service port the ingress routes to |
 | `x-orcinus-ingress-class` | `traefik` \| `nginx` \| … | Ingress class to use |
+| `x-orcinus-strip-prefix` | `true` \| prefix \| list | Traefik **StripPrefix**: strip the path prefix so the backend sees `/` (see [INGRESS.md](./INGRESS.md)) |
+| `x-orcinus-middleware` | middleware name or list | Attach Traefik **middleware(s)** to the route, in order (rate limit, headers, auth, redirect, …) |
 | `x-orcinus-autoscale-min` | int | HPA min replicas (default 1) |
 | `x-orcinus-autoscale-max` | int | HPA max replicas (**enables** the HPA) |
 | `x-orcinus-autoscale-cpu` | int | HPA target CPU utilization % (default 80 if no metric) |

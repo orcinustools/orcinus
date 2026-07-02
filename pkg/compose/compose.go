@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kubernetes/kompose/pkg/kobject"
 	"github.com/kubernetes/kompose/pkg/loader"
@@ -142,8 +143,9 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	}
 	objects = append(objects, extra...)
 
-	// 6. Apply ingress hints (TLS/path/port/class) to generated Ingresses.
-	applyIngressConfig(objects, ingressCfgs)
+	// 6. Apply ingress hints (TLS/path/port/class/Traefik middlewares) to the
+	//    generated Ingresses; may generate Traefik Middleware CRDs.
+	objects = append(objects, applyIngressConfig(objects, ingressCfgs, opts)...)
 
 	// 7. Convert Deployments to Argo Rollouts for x-orcinus-rollout services.
 	objects, rolloutSvcs, err := convertRollouts(objects, rolloutCfgs)
@@ -387,11 +389,14 @@ func autoscaleMetrics(cpu, mem int32) []autoscalingv2.MetricSpec {
 }
 
 // applyIngressConfig enriches each generated Ingress with the service's
-// x-orcinus ingress hints: cert-manager TLS, ingress class, path, backend port.
-func applyIngressConfig(objects []runtime.Object, cfgs map[string]ingressCfg) {
+// x-orcinus ingress hints: cert-manager TLS, ingress class, path, backend port,
+// and Traefik middlewares (StripPrefix + attach-by-name). It returns any Traefik
+// Middleware CRDs it generated (e.g. the auto StripPrefix), to be applied too.
+func applyIngressConfig(objects []runtime.Object, cfgs map[string]ingressCfg, opts Options) []runtime.Object {
 	if len(cfgs) == 0 {
-		return
+		return nil
 	}
+	var generated []runtime.Object
 	for _, obj := range objects {
 		ing, ok := obj.(*networkingv1.Ingress)
 		if !ok {
@@ -437,7 +442,86 @@ func applyIngressConfig(objects []runtime.Object, cfgs map[string]ingressCfg) {
 				}
 			}
 		}
+
+		// Traefik middlewares (Traefik is the runtime's native ingress controller).
+		ns := opts.Namespace
+		if ns == "" {
+			ns = "default"
+		}
+		var refs []string
+		// StripPrefix runs first so downstream middlewares/apps see the stripped path.
+		if prefixes := stripPrefixesFor(cfg, ing); len(prefixes) > 0 {
+			name := ing.Name + "-stripprefix"
+			generated = append(generated, traefikStripPrefix(name, ns, ownershipLabels(opts.ProjectName), prefixes))
+			refs = append(refs, fmt.Sprintf("%s-%s@kubernetescrd", ns, name))
+		}
+		for _, m := range cfg.Middlewares {
+			refs = append(refs, fmt.Sprintf("%s-%s@kubernetescrd", ns, m))
+		}
+		if len(refs) > 0 {
+			if ing.Annotations == nil {
+				ing.Annotations = map[string]string{}
+			}
+			ing.Annotations["traefik.ingress.kubernetes.io/router.middlewares"] = strings.Join(refs, ",")
+		}
 	}
+	return generated
+}
+
+// stripPrefixesFor resolves the prefixes to strip: explicit x-orcinus-strip-prefix
+// values, or (when set to true) the ingress path prefixes (excluding a bare "/").
+func stripPrefixesFor(cfg ingressCfg, ing *networkingv1.Ingress) []string {
+	if len(cfg.StripPrefixes) > 0 {
+		return cfg.StripPrefixes
+	}
+	if !cfg.StripFromPath {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range ing.Spec.Rules {
+		if r.HTTP == nil {
+			continue
+		}
+		for _, p := range r.HTTP.Paths {
+			if p.Path == "" || p.Path == "/" || seen[p.Path] {
+				continue
+			}
+			seen[p.Path] = true
+			out = append(out, p.Path)
+		}
+	}
+	return out
+}
+
+// traefikStripPrefix builds a Traefik StripPrefix Middleware CRD (traefik.io/v1alpha1).
+func traefikStripPrefix(name, namespace string, labels map[string]string, prefixes []string) runtime.Object {
+	ps := make([]interface{}, len(prefixes))
+	for i, p := range prefixes {
+		ps[i] = p
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "traefik.io/v1alpha1",
+		"kind":       "Middleware",
+		"metadata": map[string]interface{}{
+			"name":      name,
+			"namespace": namespace,
+			"labels":    toStringMapIface(labels),
+		},
+		"spec": map[string]interface{}{
+			"stripPrefix": map[string]interface{}{"prefixes": ps},
+		},
+	}}
+}
+
+// ownershipLabels returns the standard orcinus ownership labels for generated objects.
+func ownershipLabels(project string) map[string]string {
+	l := map[string]string{LabelManagedBy: ManagedByValue}
+	if project != "" {
+		l[LabelPartOf] = project
+		l[LabelProject] = project
+	}
+	return l
 }
 
 func ingressHost(ing *networkingv1.Ingress) string {

@@ -9,6 +9,7 @@ manifests required.
 - **CLI usage guide:** [`docs/USAGE.md`](./docs/USAGE.md)
 - **Deployment & update strategies:** [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 - **Cluster setup (single / multi-node / HA):** [`docs/CLUSTER.md`](./docs/CLUSTER.md)
+- **Ingress & Traefik middlewares:** [`docs/INGRESS.md`](./docs/INGRESS.md)
 - **Plugins & cluster add-ons:** [`docs/PLUGINS.md`](./docs/PLUGINS.md)
 - **High-availability storage:** [`docs/HA-STORAGE.md`](./docs/HA-STORAGE.md)
 - **Examples:** [`examples/`](./examples/README.md) (WordPress, Redis, monitoring, autoscale, rollout, ingress+TLS, …)

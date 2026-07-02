@@ -32,6 +32,7 @@ type Applier struct {
 	dyn       dynamic.Interface
 	clientset kubernetes.Interface
 	mapper    meta.RESTMapper
+	dc        discovery.DiscoveryInterface // retained so the mapper can be refreshed
 }
 
 // AppliedRef records an object that was applied (used for prune bookkeeping).
@@ -125,7 +126,49 @@ func NewApplier(cfg *rest.Config) (*Applier, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discover API resources: %w", err)
 	}
-	return &Applier{dyn: dyn, clientset: cs, mapper: restmapper.NewDiscoveryRESTMapper(groups)}, nil
+	return &Applier{dyn: dyn, clientset: cs, mapper: restmapper.NewDiscoveryRESTMapper(groups), dc: dc}, nil
+}
+
+// refreshMapper re-discovers API resources and rebuilds the REST mapper, so a
+// CRD registered after the applier was created (e.g. by an operator, or Traefik
+// still installing on a fresh cluster) becomes resolvable.
+func (a *Applier) refreshMapper() error {
+	groups, err := restmapper.GetAPIGroupResources(a.dc)
+	if err != nil {
+		return err
+	}
+	a.mapper = restmapper.NewDiscoveryRESTMapper(groups)
+	return nil
+}
+
+// resolveMapping resolves the REST mapping for gvk. If the kind is not yet known
+// (its CRD is still registering — common for CRs applied right after their
+// operator, or Traefik middlewares on a freshly-booted cluster), it refreshes
+// discovery and waits briefly for the CRD to appear.
+func (a *Applier) resolveMapping(ctx context.Context, gvk schema.GroupVersionKind) (*meta.RESTMapping, error) {
+	mapping, err := a.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err == nil || !meta.IsNoMatchError(err) {
+		return mapping, err
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+		if rerr := a.refreshMapper(); rerr != nil {
+			continue
+		}
+		mapping, err = a.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err == nil {
+			return mapping, nil
+		}
+		if !meta.IsNoMatchError(err) {
+			return nil, err
+		}
+	}
+	return nil, err
 }
 
 // Apply server-side-applies every object, then optionally prunes and waits.
@@ -144,7 +187,7 @@ func (a *Applier) Apply(ctx context.Context, objects []runtime.Object, opts Appl
 		cleanForApply(u)
 
 		gvk := u.GroupVersionKind()
-		mapping, err := a.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		mapping, err := a.resolveMapping(ctx, gvk)
 		if err != nil {
 			return nil, fmt.Errorf("map %s: %w", gvk, err)
 		}
