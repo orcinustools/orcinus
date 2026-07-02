@@ -17,6 +17,7 @@ import (
 	"github.com/kubernetes/kompose/pkg/transformer/kubernetes"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,6 +68,7 @@ func Convert(opts Options) ([]runtime.Object, error) {
 
 	secrets := map[string][]string{}
 	ingressCfgs := map[string]ingressCfg{}
+	autoscaleCfgs := map[string]autoscaleCfg{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
@@ -82,6 +84,9 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, cfg := range pp.ingress {
 			ingressCfgs[svc] = cfg
+		}
+		for svc, cfg := range pp.autoscale {
+			autoscaleCfgs[svc] = cfg
 		}
 		tmp := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s", i, filepath.Base(f)))
 		if err := os.WriteFile(tmp, pp.content, 0o600); err != nil {
@@ -130,8 +135,83 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	// 6. Apply ingress hints (TLS/path/port/class) to generated Ingresses.
 	applyIngressConfig(objects, ingressCfgs)
 
+	// 7. Generate HorizontalPodAutoscalers from x-orcinus-autoscale-*.
+	hpas := buildAutoscalers(objects, autoscaleCfgs, opts)
+	objects = append(objects, hpas...)
+
 	sortObjects(objects)
 	return objects, nil
+}
+
+// buildAutoscalers creates an HPA per service that requested autoscaling,
+// targeting that service's Deployment or StatefulSet.
+func buildAutoscalers(objects []runtime.Object, cfgs map[string]autoscaleCfg, opts Options) []runtime.Object {
+	if len(cfgs) == 0 {
+		return nil
+	}
+	// Map service name → workload kind that was generated.
+	kindOf := map[string]string{}
+	for _, obj := range objects {
+		switch t := obj.(type) {
+		case *appsv1.Deployment:
+			kindOf[t.Name] = "Deployment"
+		case *appsv1.StatefulSet:
+			if _, ok := kindOf[t.Name]; !ok {
+				kindOf[t.Name] = "StatefulSet"
+			}
+		}
+	}
+
+	var out []runtime.Object
+	for svc, cfg := range cfgs {
+		kind := kindOf[svc]
+		if kind == "" {
+			kind = "Deployment"
+		}
+		min := int32(cfg.Min)
+		if min < 1 {
+			min = 1
+		}
+		cpu := int32(cfg.CPU)
+		mem := int32(cfg.Memory)
+		if cpu == 0 && mem == 0 {
+			cpu = 80
+		}
+		hpa := &autoscalingv2.HorizontalPodAutoscaler{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "autoscaling/v2", Kind: "HorizontalPodAutoscaler"},
+			ObjectMeta: metav1.ObjectMeta{Name: svc},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{APIVersion: "apps/v1", Kind: kind, Name: svc},
+				MinReplicas:    &min,
+				MaxReplicas:    int32(cfg.Max),
+				Metrics:        autoscaleMetrics(cpu, mem),
+			},
+		}
+		out = append(out, hpa)
+	}
+	decorate(out, opts.ProjectName, opts.Namespace)
+	return out
+}
+
+func autoscaleMetrics(cpu, mem int32) []autoscalingv2.MetricSpec {
+	var m []autoscalingv2.MetricSpec
+	add := func(res corev1.ResourceName, v int32) {
+		t := v
+		m = append(m, autoscalingv2.MetricSpec{
+			Type: autoscalingv2.ResourceMetricSourceType,
+			Resource: &autoscalingv2.ResourceMetricSource{
+				Name:   res,
+				Target: autoscalingv2.MetricTarget{Type: autoscalingv2.UtilizationMetricType, AverageUtilization: &t},
+			},
+		})
+	}
+	if cpu > 0 {
+		add(corev1.ResourceCPU, cpu)
+	}
+	if mem > 0 {
+		add(corev1.ResourceMemory, mem)
+	}
+	return m
 }
 
 // applyIngressConfig enriches each generated Ingress with the service's

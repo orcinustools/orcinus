@@ -391,6 +391,36 @@ orcinus plugin install storage --provider nfs --nfs-server 10.0.0.9 --nfs-path /
 
 For fault-tolerant storage across nodes, see [`HA-STORAGE.md`](./HA-STORAGE.md).
 
+### 5.9c `orcinus scale` / `orcinus autoscale`
+
+Scale a service manually, or set up horizontal autoscaling (HPA). Orcinus clusters
+ship with a working metrics-server (auto-enabled by `cluster init`), so HPAs get
+metrics out of the box.
+
+```bash
+orcinus scale web 3                                  # set replicas to 3
+orcinus autoscale web --min 2 --max 8 --cpu 70       # HPA on 70% CPU
+orcinus autoscale worker --min 1 --max 5 --memory 75 # HPA on memory
+```
+
+`scale <service> <replicas>` targets the service's Deployment or StatefulSet.
+`autoscale <service>` creates/updates a HorizontalPodAutoscaler (`--min`/`--max`,
+`--cpu`/`--memory` utilization %). Both take `-n`/`--kubeconfig`.
+
+You can also declare autoscaling in the compose file (see Appendix B):
+
+```yaml
+services:
+  web:
+    image: myapp
+    deploy:
+      resources:
+        reservations: { cpus: "0.1", memory: 64M }   # requests are needed for % HPA
+    x-orcinus-autoscale-min: 2
+    x-orcinus-autoscale-max: 8
+    x-orcinus-autoscale-cpu: 70
+```
+
 ### 5.10 `orcinus version`
 
 Print the orcinus version, git commit, and the embedded conversion-engine ref.
@@ -470,6 +500,10 @@ keys; orcinus parses them during conversion.
 | `x-orcinus-path` | path (default `/`) | Ingress path |
 | `x-orcinus-port` | port number | Which service port the ingress routes to |
 | `x-orcinus-ingress-class` | `traefik` \| `nginx` \| … | Ingress class to use |
+| `x-orcinus-autoscale-min` | int | HPA min replicas (default 1) |
+| `x-orcinus-autoscale-max` | int | HPA max replicas (**enables** the HPA) |
+| `x-orcinus-autoscale-cpu` | int | HPA target CPU utilization % (default 80 if no metric) |
+| `x-orcinus-autoscale-memory` | int | HPA target memory utilization % |
 
 Example:
 

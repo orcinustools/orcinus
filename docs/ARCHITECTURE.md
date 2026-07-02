@@ -142,6 +142,7 @@ compose file ─► pkg/compose.Convert()   (forked loader → transformer → [
 | `deploy.replicas` | `.spec.replicas` | |
 | `deploy.resources` | `resources.limits/requests` | cpu/memory mapped and unit-tested |
 | `healthcheck` | `livenessProbe` | exec/http probe derived from the compose healthcheck |
+| `x-orcinus-autoscale-*` | `HorizontalPodAutoscaler` | min/max/cpu/memory → HPA for the service |
 | `restart` | `restartPolicy` / managed by controller | |
 | `depends_on` | best-effort apply ordering | no complex readiness guarantee |
 | `networks` | (ignored in v1) | flat Kubernetes networking |

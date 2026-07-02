@@ -26,6 +26,8 @@ func NewRootCmd() *cobra.Command {
 		newLsCmd(),
 		newPsCmd(),
 		newLogsCmd(),
+		newScaleCmd(),
+		newAutoscaleCmd(),
 		newVersionCmd(),
 	)
 	return root

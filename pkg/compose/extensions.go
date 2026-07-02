@@ -20,6 +20,11 @@ const (
 	extPath         = "x-orcinus-path"          // ingress path (default "/")
 	extPort         = "x-orcinus-port"          // service port the ingress routes to
 	extIngressClass = "x-orcinus-ingress-class" // ingress class (e.g. traefik, nginx)
+
+	extAutoscaleMin = "x-orcinus-autoscale-min"    // HPA min replicas
+	extAutoscaleMax = "x-orcinus-autoscale-max"    // HPA max replicas (enables HPA)
+	extAutoscaleCPU = "x-orcinus-autoscale-cpu"    // HPA target CPU %
+	extAutoscaleMem = "x-orcinus-autoscale-memory" // HPA target memory %
 )
 
 // kompose native label keys we translate onto.
@@ -38,6 +43,11 @@ type ingressCfg struct {
 	Class string
 }
 
+// autoscaleCfg holds HPA hints for a service.
+type autoscaleCfg struct {
+	Min, Max, CPU, Memory int
+}
+
 // preprocessed is the result of translating one compose document.
 type preprocessed struct {
 	// content is the rewritten compose bytes (with kompose.* labels injected).
@@ -47,6 +57,8 @@ type preprocessed struct {
 	secrets map[string][]string
 	// ingress maps a service name to ingress hints applied after transform.
 	ingress map[string]ingressCfg
+	// autoscale maps a service name to HPA hints applied after transform.
+	autoscale map[string]autoscaleCfg
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
@@ -57,7 +69,11 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		return nil, fmt.Errorf("parse compose document: %w", err)
 	}
 
-	out := &preprocessed{secrets: map[string][]string{}, ingress: map[string]ingressCfg{}}
+	out := &preprocessed{
+		secrets:   map[string][]string{},
+		ingress:   map[string]ingressCfg{},
+		autoscale: map[string]autoscaleCfg{},
+	}
 
 	servicesAny, ok := doc["services"].(map[string]interface{})
 	if !ok {
@@ -114,6 +130,24 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		}
 		if ic != (ingressCfg{}) {
 			out.ingress[name] = ic
+		}
+
+		// Autoscale hints → HPA after transform.
+		var ac autoscaleCfg
+		if v, ok := intExt(svc[extAutoscaleMin]); ok {
+			ac.Min = v
+		}
+		if v, ok := intExt(svc[extAutoscaleMax]); ok {
+			ac.Max = v
+		}
+		if v, ok := intExt(svc[extAutoscaleCPU]); ok {
+			ac.CPU = v
+		}
+		if v, ok := intExt(svc[extAutoscaleMem]); ok {
+			ac.Memory = v
+		}
+		if ac.Max > 0 {
+			out.autoscale[name] = ac
 		}
 
 		if len(labels) > 0 {

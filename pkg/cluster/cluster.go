@@ -128,6 +128,12 @@ func Init(o InitOptions) (*InitResult, error) {
 		return nil, err
 	}
 
+	// On a fresh cluster, make the bundled metrics-server work in the
+	// container runtime (best-effort) so `kubectl top` and HPAs get metrics.
+	if !exists {
+		enableMetrics(o.Name)
+	}
+
 	// Extract & rewrite kubeconfig for host access.
 	raw, err := docker("exec", o.Name, "cat", "/etc/rancher/k3s/k3s.yaml")
 	if err != nil {
@@ -369,6 +375,22 @@ func docker(args ...string) (string, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// enableMetrics patches the bundled metrics-server to skip kubelet TLS
+// verification, which it otherwise can't satisfy inside the container runtime.
+// Best-effort: never fails the init.
+func enableMetrics(name string) {
+	for i := 0; i < 20; i++ {
+		out, err := docker("exec", name, "kubectl", "-n", "kube-system", "get", "deploy", "metrics-server")
+		if err == nil && strings.Contains(out, "metrics-server") {
+			_, _ = docker("exec", name, "kubectl", "-n", "kube-system", "patch", "deployment", "metrics-server",
+				"--type=json",
+				"-p", `[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]`)
+			return
+		}
+		time.Sleep(3 * time.Second)
+	}
 }
 
 func waitReady(name string, timeout time.Duration) error {

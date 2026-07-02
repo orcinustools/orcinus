@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -254,6 +255,36 @@ services:
 		return
 	}
 	t.Fatal("no Ingress found")
+}
+
+func TestConvertAutoscale(t *testing.T) {
+	const f = `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-autoscale-min: 2
+    x-orcinus-autoscale-max: 6
+    x-orcinus-autoscale-cpu: 70
+`
+	for _, o := range convertString(t, f) {
+		hpa, ok := o.(*autoscalingv2.HorizontalPodAutoscaler)
+		if !ok {
+			continue
+		}
+		if hpa.Spec.MinReplicas == nil || *hpa.Spec.MinReplicas != 2 || hpa.Spec.MaxReplicas != 6 {
+			t.Errorf("min/max = %v/%d, want 2/6", hpa.Spec.MinReplicas, hpa.Spec.MaxReplicas)
+		}
+		if hpa.Spec.ScaleTargetRef.Kind != "Deployment" || hpa.Spec.ScaleTargetRef.Name != "web" {
+			t.Errorf("target = %s/%s, want Deployment/web", hpa.Spec.ScaleTargetRef.Kind, hpa.Spec.ScaleTargetRef.Name)
+		}
+		if len(hpa.Spec.Metrics) == 0 || hpa.Spec.Metrics[0].Resource == nil ||
+			*hpa.Spec.Metrics[0].Resource.Target.AverageUtilization != 70 {
+			t.Errorf("expected CPU target 70, got %+v", hpa.Spec.Metrics)
+		}
+		return
+	}
+	t.Fatal("no HorizontalPodAutoscaler found")
 }
 
 func TestConvertIngress(t *testing.T) {
