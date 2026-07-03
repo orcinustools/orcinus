@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/orcinustools/assets/main/OrcinusFix.svg" alt="Orcinus" width="260">
+  <img src="https://raw.githubusercontent.com/orcinustools/orcinus/main/.github/assets/orcinus-logo.svg" alt="Orcinus" width="260">
 </p>
 
 # Orcinus — Compose-simple. Cluster-strong.
@@ -22,23 +22,6 @@ manifests required.
 Orcinus embeds a lightweight Kubernetes runtime and **forks kompose**
 (`third_party/kompose`) so the compose→Kubernetes conversion is fully Docker
 Compose compatible and under our control.
-
-## Status
-
-| Milestone | What | State |
-|---|---|---|
-| M0 | Scaffold, multicall CLI, `--help` | ✅ done |
-| M1 | `orcinus deploy` compose→k8s conversion (+ `x-orcinus-*`) | ✅ done |
-| M2 | Cluster ops: `deploy` (apply/prune/wait), `rm`, `ls`, `ps`, `logs` | ✅ done |
-| M3 | Cluster runtime: `init` / `join` / `status` / `down` (auto kubeconfig) | ✅ done |
-| M4 | Plugins (`plugin install cert-manager` …) + ingress/TLS `x-orcinus-tls` | ✅ done |
-| M5 | Scaling: `scale`, `autoscale` (HPA) + `x-orcinus-autoscale-*` | ✅ done |
-| M6 | Deploy strategies (`update_config`) + progressive delivery (`x-orcinus-rollout`) | ✅ done |
-| M7 | Day-2 ops: `rollback`, `kubectl` passthrough, `secret`, readiness in `ls`/`plugin list`, `plugin upgrade` | ✅ done |
-
-Verified compose→k8s mappings: controllers (Deployment/StatefulSet/DaemonSet),
-Service (ClusterIP/NodePort), Ingress, PVC, Secret extraction, replicas,
-resource limits/requests, healthcheck→liveness probe, multiple ports.
 
 ## Install
 
