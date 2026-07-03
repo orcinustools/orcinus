@@ -90,8 +90,14 @@ runtime on the host. Workload commands only need access to a cluster.
 
 **Standalone binary.** Each release also attaches `orcinus-standalone`
 (linux/amd64) — a single self-contained binary with the runtime built in, for the
-`--runtime standalone` provider (no container runtime needed). See
-[CLUSTER.md → Runtime providers](CLUSTER.md#runtime-providers).
+`--runtime standalone` provider (no container runtime needed):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install-standalone.sh | sh
+# equivalently: ORCINUS_STANDALONE=1 curl -fsSL …/install.sh | sh
+```
+
+See [CLUSTER.md → Runtime providers](CLUSTER.md#runtime-providers).
 
 **Releases & versioning.** Releases are **tag-driven**: pushing a `vX.Y.Z` tag
 triggers GitHub Actions → GoReleaser, which builds all binaries, stamps the
