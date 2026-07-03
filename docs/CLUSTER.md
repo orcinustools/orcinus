@@ -80,25 +80,38 @@ It is **opt-in at build time**: only the binary built with `make orcinus-standal
 has the runtime built in. The normal `orcinus` binary returns a clear error if you
 pass `--runtime standalone`, keeping the default binary small.
 
-Prebuilt `orcinus-standalone` (linux/amd64) is attached to every GitHub release;
-or build it yourself:
+**Install** the prebuilt `orcinus-standalone` (linux/amd64, attached to every
+GitHub release):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install-standalone.sh | sh
+# → installs `orcinus-standalone` to /usr/local/bin
+# overrides: ORCINUS_VERSION=<tag>  ORCINUS_INSTALL=<dir>
+```
+
+Or build it yourself:
 
 ```bash
 # Build the standalone binary (downloads the runtime asset once, then embeds it).
 make orcinus-standalone
+```
 
+Then start a native cluster (the examples below assume it's on `PATH` as
+`orcinus-standalone`; use `sudo ./bin/orcinus-standalone` if you built locally):
+
+```bash
 # Start a native cluster — no container runtime involved. Needs root.
-sudo ./bin/orcinus-standalone cluster init --runtime standalone --port 6443
+sudo orcinus-standalone cluster init --runtime standalone --port 6443
 
 # Pass extra runtime server flags with --server-arg (repeatable):
-sudo ./bin/orcinus-standalone cluster init --runtime standalone \
+sudo orcinus-standalone cluster init --runtime standalone \
   --server-arg --disable=traefik --server-arg --disable=servicelb
 
 # The same binary is also the runtime's kubectl:
-sudo ./bin/orcinus-standalone kubectl get nodes
+sudo orcinus-standalone kubectl get nodes
 
 # Tear down (stops the process, unmounts, clears state):
-sudo ./bin/orcinus-standalone cluster down
+sudo orcinus-standalone cluster down
 ```
 
 **Notes & limits.**
