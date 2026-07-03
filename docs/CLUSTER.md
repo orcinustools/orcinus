@@ -47,7 +47,7 @@ For the full command/flag reference see [`USAGE.md`](./USAGE.md).
 
 - A container runtime on each host (for the default `docker` provider). The
   docker command is taken from `$ORCINUS_DOCKER` (default `docker`; e.g. `sudo
-  docker`). The `embedded` provider needs **no** container runtime — see below.
+  docker`). The `standalone` provider needs **no** container runtime — see below.
 - Network reachability between hosts on the API port (default `6443`) for
   multi-node setups, and a firewall you trust.
 
@@ -60,7 +60,7 @@ For the full command/flag reference see [`USAGE.md`](./USAGE.md).
 | Provider | How it runs | Needs | Best for |
 |---|---|---|---|
 | `docker` (default) | Cluster runs inside a container | A container runtime | Dev, CI, homelab, most setups |
-| `embedded` | Runtime runs **natively on the host** as a managed process | Root + a real host (systemd-style cgroups) | Bare-metal / edge with **no container runtime** |
+| `standalone` | Runtime runs **natively on the host** as a managed process | Root + a real host (systemd-style cgroups) | Bare-metal / edge with **no container runtime** |
 
 ### `docker` (default)
 
@@ -70,32 +70,35 @@ Nothing special — this is the container-backed path used throughout this guide
 orcinus cluster init
 ```
 
-### `embedded` — single self-contained binary
+### `standalone` — single self-contained binary
 
 The runtime is compiled **into** the orcinus binary (`go:embed`), so one binary
 both drives the cluster and *is* the runtime. There is no container runtime and
 no image pull.
 
-It is **opt-in at build time**: only the binary built with `make orcinus-embedded`
+It is **opt-in at build time**: only the binary built with `make orcinus-standalone`
 has the runtime built in. The normal `orcinus` binary returns a clear error if you
-pass `--runtime embedded`, keeping the default binary small.
+pass `--runtime standalone`, keeping the default binary small.
+
+Prebuilt `orcinus-standalone` (linux/amd64) is attached to every GitHub release;
+or build it yourself:
 
 ```bash
-# Build the embedded binary (downloads the runtime asset once, then embeds it).
-make orcinus-embedded
+# Build the standalone binary (downloads the runtime asset once, then embeds it).
+make orcinus-standalone
 
 # Start a native cluster — no container runtime involved. Needs root.
-sudo ./bin/orcinus-embedded cluster init --runtime embedded --port 6443
+sudo ./bin/orcinus-standalone cluster init --runtime standalone --port 6443
 
 # Pass extra runtime server flags with --server-arg (repeatable):
-sudo ./bin/orcinus-embedded cluster init --runtime embedded \
+sudo ./bin/orcinus-standalone cluster init --runtime standalone \
   --server-arg --disable=traefik --server-arg --disable=servicelb
 
 # The same binary is also the runtime's kubectl:
-sudo ./bin/orcinus-embedded kubectl get nodes
+sudo ./bin/orcinus-standalone kubectl get nodes
 
 # Tear down (stops the process, unmounts, clears state):
-sudo ./bin/orcinus-embedded cluster down
+sudo ./bin/orcinus-standalone cluster down
 ```
 
 **Notes & limits.**

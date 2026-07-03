@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/orcinustools/assets/main/OrcinusFix.svg" alt="Orcinus" width="260">
+</p>
+
 # Orcinus — Compose-simple. Cluster-strong.
 
 A lightweight cluster runtime that runs your **`docker-compose.yml` files and

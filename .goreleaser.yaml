@@ -4,8 +4,12 @@ project_name: orcinus
 before:
   hooks:
     - go mod tidy
+    # Fetch the runtime asset embedded into the standalone binary (linux/amd64).
+    # Keep the pin in sync with the Makefile's RUNTIME_VERSION.
+    - bash -c 'test -f pkg/runtime/assets/k3s || (mkdir -p pkg/runtime/assets && curl -fsSL -o pkg/runtime/assets/k3s https://github.com/k3s-io/k3s/releases/download/v1.31.5+k3s1/k3s && chmod +x pkg/runtime/assets/k3s)'
 
 builds:
+  # Default: lean, cross-platform binary (container runtime provider).
   - id: orcinus
     main: ./cmd/orcinus
     binary: orcinus
@@ -22,10 +26,37 @@ builds:
       - -X github.com/orcinustools/orcinus/pkg/version.Version={{ .Version }}
       - -X github.com/orcinustools/orcinus/pkg/version.GitCommit={{ .ShortCommit }}
 
+  # Standalone: self-contained binary with the runtime embedded (`--runtime
+  # standalone`). linux/amd64 only — the embedded runtime asset is arch-specific.
+  - id: orcinus-standalone
+    main: ./cmd/orcinus
+    binary: orcinus-standalone
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    tags:
+      - standalone
+    ldflags:
+      - -s -w
+      - -X github.com/orcinustools/orcinus/pkg/version.Version={{ .Version }}
+      - -X github.com/orcinustools/orcinus/pkg/version.GitCommit={{ .ShortCommit }}
+
 archives:
   - id: default
-    format: tar.gz
+    ids: [orcinus]
+    formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE
+  - id: standalone
+    ids: [orcinus-standalone]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}-standalone_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
       - LICENSE

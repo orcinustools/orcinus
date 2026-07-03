@@ -40,7 +40,7 @@ func newInitCmd() *cobra.Command {
 	f.BoolVar(&o.ClusterInit, "cluster-init", false, "embedded etcd (HA mode)")
 	f.StringVar(&o.DatastoreEndpoint, "datastore-endpoint", "", "external datastore (etcd/Postgres/MySQL)")
 	f.StringVar(&o.KubeconfigPath, "kubeconfig", "", "where to write the kubeconfig (default: ~/.orcinus/kubeconfig)")
-	f.StringVar(&o.Runtime, "runtime", "docker", "cluster runtime provider: docker (container-backed) or embedded (native, built-in runtime)")
+	f.StringVar(&o.Runtime, "runtime", "docker", "cluster runtime provider: docker (container-backed) or standalone (native, built-in runtime)")
 	f.StringArrayVar(&o.ExtraServerArgs, "server-arg", nil, "extra runtime server argument (repeatable), e.g. --server-arg --snapshotter=native")
 	return cmd
 }

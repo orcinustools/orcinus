@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// DefaultImage is the runtime image used for the embedded cluster.
+// DefaultImage is the runtime image used for the container-based cluster.
 const DefaultImage = "rancher/k3s:v1.31.5-k3s1"
 
 // DefaultName is the default server container name.
@@ -37,7 +37,7 @@ type InitOptions struct {
 	DatastoreEndpoint string   // external datastore
 	ExtraServerArgs   []string // additional runtime server args
 	KubeconfigPath    string   // where to write the kubeconfig (default: ~/.orcinus/kubeconfig)
-	Runtime           string   // "docker" (default) or "embedded" (native, built-in runtime)
+	Runtime           string   // "docker" (default) or "standalone" (native, built-in runtime)
 }
 
 // InitResult is returned after a successful init.
@@ -48,7 +48,7 @@ type InitResult struct {
 	Token          string `json:"token"`
 	APIPort        int    `json:"apiPort"`
 	KubeconfigPath string `json:"kubeconfig"`
-	Runtime        string `json:"runtime,omitempty"` // "docker" (default) or "embedded"
+	Runtime        string `json:"runtime,omitempty"` // "docker" (default) or "standalone"
 }
 
 // JoinOptions configures `orcinus join`.
@@ -77,13 +77,13 @@ func Init(o InitOptions) (*InitResult, error) {
 	if o.Runtime == "" {
 		o.Runtime = "docker"
 	}
-	// The embedded runtime runs the built-in Kubernetes server natively on this
+	// The standalone runtime runs the built-in Kubernetes server natively on this
 	// host (no container runtime). It is a separate provider path.
-	if o.Runtime == "embedded" {
-		return initEmbedded(o)
+	if o.Runtime == "standalone" {
+		return initStandalone(o)
 	}
 	if o.Runtime != "docker" {
-		return nil, fmt.Errorf("unknown --runtime %q (want: docker|embedded)", o.Runtime)
+		return nil, fmt.Errorf("unknown --runtime %q (want: docker|standalone)", o.Runtime)
 	}
 	if o.BindAddress == "" {
 		o.BindAddress = "127.0.0.1"
@@ -270,11 +270,11 @@ func Status(name string) (*StatusResult, error) {
 	if name == "" {
 		name = st.Name
 	}
-	if st.Runtime == "embedded" {
-		running := embeddedRunning(name)
+	if st.Runtime == "standalone" {
+		running := standaloneRunning(name)
 		res := &StatusResult{State: st, Running: running}
 		if running {
-			res.Nodes = embeddedNodes(st.KubeconfigPath)
+			res.Nodes = standaloneNodes(st.KubeconfigPath)
 		}
 		return res, nil
 	}
@@ -299,9 +299,9 @@ func Down(name string) (int, error) {
 			name = DefaultName
 		}
 	}
-	// Embedded clusters are native host processes, not containers.
-	if stErr == nil && st.Runtime == "embedded" {
-		return downEmbedded(name)
+	// Standalone clusters are native host processes, not containers.
+	if stErr == nil && st.Runtime == "standalone" {
+		return downStandalone(name)
 	}
 
 	removed := 0

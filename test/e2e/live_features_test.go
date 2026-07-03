@@ -397,32 +397,32 @@ services:
 	}
 }
 
-// TestLiveEmbeddedRuntime proves the M3 embed+exec path: build the single
-// self-contained orcinus binary (with the embedded runtime), run it as a bare
+// TestLiveStandaloneRuntime proves the M3 embed+exec path: build the single
+// self-contained orcinus binary (with the standalone runtime), run it as a bare
 // host (a clean ubuntu container) via `orcinus runtime server`, and verify a
 // real cluster + workload come up — no runtime image involved. Skipped unless
-// ORCINUS_E2E_LIVE is set and the embed asset is present (`make orcinus-embedded`).
-func TestLiveEmbeddedRuntime(t *testing.T) {
+// ORCINUS_E2E_LIVE is set and the embed asset is present (`make orcinus-standalone`).
+func TestLiveStandaloneRuntime(t *testing.T) {
 	requireLive(t)
 	root := repoRoot()
 	if _, err := os.Stat(root + "/pkg/runtime/assets/k3s"); err != nil {
-		t.Skip("embedded runtime asset missing — run `make orcinus-embedded` first")
+		t.Skip("standalone runtime asset missing — run `make orcinus-standalone` first")
 	}
-	bin := t.TempDir() + "/orcinus-embedded"
-	build := exec.Command("go", "build", "-tags", "embedruntime", "-o", bin, "./cmd/orcinus")
+	bin := t.TempDir() + "/orcinus-standalone"
+	build := exec.Command("go", "build", "-tags", "standalone", "-o", bin, "./cmd/orcinus")
 	build.Dir = root
 	build.Env = os.Environ()
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build embedded orcinus: %v\n%s", err, out)
+		t.Fatalf("build standalone orcinus: %v\n%s", err, out)
 	}
 
 	docker := strings.Fields(envOr("ORCINUS_E2E_DOCKER", "docker"))
-	const name = "orcinus-embed-e2e"
+	const name = "orcinus-standalone-e2e"
 	_, _ = runcOut(append(docker, "rm", "-f", name)...)
 	t.Cleanup(func() { _, _ = runcOut(append(docker, "rm", "-f", name)...) })
 
 	// Run the single binary as PID 1 in a plain ubuntu container (the "bare
-	// host"), using its `runtime server` passthrough to the embedded runtime.
+	// host"), using its `runtime server` passthrough to the standalone runtime.
 	if out, err := runcOut(append(docker, "run", "-d", "--privileged", "--name", name,
 		"-v", bin+":/usr/local/bin/orcinus:ro",
 		"-v", "/etc/ssl/certs:/etc/ssl/certs:ro",
@@ -430,20 +430,20 @@ func TestLiveEmbeddedRuntime(t *testing.T) {
 		"--snapshotter=native", // nested-docker workaround; real hosts use overlayfs
 		"--disable", "traefik", "--disable", "servicelb", "--disable", "metrics-server",
 		"--write-kubeconfig-mode", "644")...); err != nil {
-		t.Fatalf("start embedded runtime: %v\n%s", err, out)
+		t.Fatalf("start standalone runtime: %v\n%s", err, out)
 	}
 	kubectl := func(args ...string) (string, error) {
 		return runcOut(append(append(docker, "exec", name, "orcinus", "runtime", "kubectl"), args...)...)
 	}
 
-	waitFor(t, 120*time.Second, "embedded-runtime node Ready", func() bool {
+	waitFor(t, 120*time.Second, "standalone-runtime node Ready", func() bool {
 		out, _ := kubectl("get", "nodes", "--no-headers")
 		return strings.Contains(out, " Ready")
 	})
 	if out, err := kubectl("create", "deployment", "web", "--image=nginx:1.27"); err != nil {
 		t.Fatalf("create deployment: %v\n%s", err, out)
 	}
-	waitFor(t, 180*time.Second, "pod Running on embedded runtime", func() bool {
+	waitFor(t, 180*time.Second, "pod Running on standalone runtime", func() bool {
 		out, _ := kubectl("get", "pods", "-l", "app=web", "--no-headers")
 		f := strings.Fields(out)
 		return len(f) >= 3 && f[1] == "1/1" && f[2] == "Running"

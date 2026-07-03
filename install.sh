@@ -4,13 +4,16 @@
 #   curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install.sh | sh
 #
 # Environment overrides:
-#   ORCINUS_VERSION   release tag to install (default: latest)
-#   ORCINUS_INSTALL   install directory       (default: /usr/local/bin)
+#   ORCINUS_VERSION      release tag to install (default: latest)
+#   ORCINUS_INSTALL      install directory       (default: /usr/local/bin)
+#   ORCINUS_STANDALONE   set to 1 to install the self-contained `orcinus-standalone`
+#                        binary (runtime built in; linux/amd64 only)
 set -eu
 
 REPO="orcinustools/orcinus"
 INSTALL_DIR="${ORCINUS_INSTALL:-/usr/local/bin}"
 VERSION="${ORCINUS_VERSION:-latest}"
+STANDALONE="${ORCINUS_STANDALONE:-}"
 
 say() { printf 'orcinus-install: %s\n' "$1" >&2; }
 die() { say "$1"; exit 1; }
@@ -40,7 +43,17 @@ fi
 
 # goreleaser strips the leading 'v' from the version in archive names.
 ver_no_v="${VERSION#v}"
-asset="orcinus_${ver_no_v}_${os}_${arch}.tar.gz"
+
+# Select the lean or the standalone (runtime built-in) artifact.
+if [ "$STANDALONE" = "1" ] || [ "$STANDALONE" = "true" ]; then
+  [ "$os" = "linux" ] && [ "$arch" = "amd64" ] || \
+    die "orcinus-standalone is linux/amd64 only (got ${os}/${arch}); install the default binary instead"
+  binname="orcinus-standalone"
+  asset="orcinus-standalone_${ver_no_v}_${os}_${arch}.tar.gz"
+else
+  binname="orcinus"
+  asset="orcinus_${ver_no_v}_${os}_${arch}.tar.gz"
+fi
 url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
 
 say "downloading ${asset} (${VERSION})"
@@ -51,11 +64,11 @@ tar -xzf "$tmp/orcinus.tar.gz" -C "$tmp"
 
 # Install (uses sudo if the target dir is not writable).
 if [ -w "$INSTALL_DIR" ]; then
-  install -m 0755 "$tmp/orcinus" "$INSTALL_DIR/orcinus"
+  install -m 0755 "$tmp/${binname}" "$INSTALL_DIR/${binname}"
 else
   say "elevating with sudo to write $INSTALL_DIR"
-  sudo install -m 0755 "$tmp/orcinus" "$INSTALL_DIR/orcinus"
+  sudo install -m 0755 "$tmp/${binname}" "$INSTALL_DIR/${binname}"
 fi
 
-say "installed orcinus ${VERSION} to ${INSTALL_DIR}/orcinus"
-"$INSTALL_DIR/orcinus" version || true
+say "installed ${binname} ${VERSION} to ${INSTALL_DIR}/${binname}"
+"$INSTALL_DIR/${binname}" version || true

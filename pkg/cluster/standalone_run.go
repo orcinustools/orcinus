@@ -1,4 +1,4 @@
-//go:build embedruntime
+//go:build standalone
 
 package cluster
 
@@ -16,7 +16,7 @@ import (
 	"github.com/orcinustools/orcinus/pkg/runtime"
 )
 
-// The embedded provider runs the built-in Kubernetes runtime as a native host
+// The standalone provider runs the built-in Kubernetes runtime as a native host
 // process — no container runtime required. It needs root (the server manages
 // cgroups, iptables and mounts) and a systemd/cgroup-delegated host.
 //
@@ -25,18 +25,18 @@ import (
 //   k3s.log  combined server log
 //   pid      server process id (its own process group)
 
-func embeddedDir(name string) string { return filepath.Join(Dir(), "runtime", name) }
+func standaloneDir(name string) string { return filepath.Join(Dir(), "runtime", name) }
 
-func initEmbedded(o InitOptions) (*InitResult, error) {
+func initStandalone(o InitOptions) (*InitResult, error) {
 	if os.Geteuid() != 0 {
-		return nil, fmt.Errorf("--runtime embedded must run as root (the native runtime manages cgroups/iptables/mounts)")
+		return nil, fmt.Errorf("--runtime standalone must run as root (the native runtime manages cgroups/iptables/mounts)")
 	}
 	bin, err := runtime.ExtractPath()
 	if err != nil {
-		return nil, fmt.Errorf("extract embedded runtime: %w", err)
+		return nil, fmt.Errorf("extract standalone runtime: %w", err)
 	}
 
-	dir := embeddedDir(o.Name)
+	dir := standaloneDir(o.Name)
 	dataDir := filepath.Join(dir, "data")
 	logPath := filepath.Join(dir, "k3s.log")
 	pidPath := filepath.Join(dir, "pid")
@@ -45,8 +45,8 @@ func initEmbedded(o InitOptions) (*InitResult, error) {
 	}
 
 	// If a server is already running for this name, reuse it (idempotent).
-	if embeddedRunning(o.Name) {
-		if st, err := LoadState(); err == nil && st.Runtime == "embedded" {
+	if standaloneRunning(o.Name) {
+		if st, err := LoadState(); err == nil && st.Runtime == "standalone" {
 			return st, nil
 		}
 	}
@@ -89,7 +89,7 @@ func initEmbedded(o InitOptions) (*InitResult, error) {
 	// and can be signalled as a group on `down`.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start embedded runtime: %w", err)
+		return nil, fmt.Errorf("start standalone runtime: %w", err)
 	}
 	pid := cmd.Process.Pid
 	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d\n", pid)), 0o644)
@@ -97,12 +97,12 @@ func initEmbedded(o InitOptions) (*InitResult, error) {
 	_ = cmd.Process.Release()
 
 	// Wait for the node to become Ready (or the process to die).
-	if err := embeddedWaitReady(o.Name, o.KubeconfigPath, pid, 180*time.Second); err != nil {
+	if err := standaloneWaitReady(o.Name, o.KubeconfigPath, pid, 180*time.Second); err != nil {
 		return nil, err
 	}
 
 	// Best-effort: make the bundled metrics-server usable (kubelet self-signed).
-	embeddedEnableMetrics(o.KubeconfigPath)
+	standaloneEnableMetrics(o.KubeconfigPath)
 
 	token, _ := os.ReadFile(filepath.Join(dataDir, "server", "node-token"))
 	host := "127.0.0.1"
@@ -111,12 +111,12 @@ func initEmbedded(o InitOptions) (*InitResult, error) {
 	}
 	res := &InitResult{
 		Name:           o.Name,
-		Image:          "embedded:" + runtimeTag(bin),
+		Image:          "standalone:" + runtimeTag(bin),
 		ServerURL:      fmt.Sprintf("https://%s:%d", host, o.APIPort),
 		Token:          strings.TrimSpace(string(token)),
 		APIPort:        o.APIPort,
 		KubeconfigPath: o.KubeconfigPath,
-		Runtime:        "embedded",
+		Runtime:        "standalone",
 	}
 	if err := saveState(res); err != nil {
 		return nil, err
@@ -124,8 +124,8 @@ func initEmbedded(o InitOptions) (*InitResult, error) {
 	return res, nil
 }
 
-func downEmbedded(name string) (int, error) {
-	dir := embeddedDir(name)
+func downStandalone(name string) (int, error) {
+	dir := standaloneDir(name)
 	removed := 0
 	if pid, ok := readPID(filepath.Join(dir, "pid")); ok {
 		// Signal the whole process group; escalate to KILL if it lingers.
@@ -152,12 +152,12 @@ func downEmbedded(name string) (int, error) {
 	return removed, nil
 }
 
-func embeddedRunning(name string) bool {
-	pid, ok := readPID(filepath.Join(embeddedDir(name), "pid"))
+func standaloneRunning(name string) bool {
+	pid, ok := readPID(filepath.Join(standaloneDir(name), "pid"))
 	return ok && processAlive(pid)
 }
 
-func embeddedNodes(kubeconfig string) string {
+func standaloneNodes(kubeconfig string) string {
 	bin, err := runtime.ExtractPath()
 	if err != nil {
 		return ""
@@ -171,7 +171,7 @@ func embeddedNodes(kubeconfig string) string {
 
 // --- helpers ---
 
-func embeddedWaitReady(name, kubeconfig string, pid int, timeout time.Duration) error {
+func standaloneWaitReady(name, kubeconfig string, pid int, timeout time.Duration) error {
 	bin, err := runtime.ExtractPath()
 	if err != nil {
 		return err
@@ -179,7 +179,7 @@ func embeddedWaitReady(name, kubeconfig string, pid int, timeout time.Duration) 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if !processAlive(pid) {
-			return fmt.Errorf("embedded runtime exited during startup; see %s", filepath.Join(embeddedDir(name), "k3s.log"))
+			return fmt.Errorf("standalone runtime exited during startup; see %s", filepath.Join(standaloneDir(name), "k3s.log"))
 		}
 		out, err := exec.Command(bin, "kubectl", "--kubeconfig", kubeconfig, "get", "nodes", "--no-headers").CombinedOutput()
 		if err == nil && strings.Contains(string(out), " Ready") {
@@ -187,10 +187,10 @@ func embeddedWaitReady(name, kubeconfig string, pid int, timeout time.Duration) 
 		}
 		time.Sleep(3 * time.Second)
 	}
-	return fmt.Errorf("embedded cluster %q did not become ready within %s", name, timeout)
+	return fmt.Errorf("standalone cluster %q did not become ready within %s", name, timeout)
 }
 
-func embeddedEnableMetrics(kubeconfig string) {
+func standaloneEnableMetrics(kubeconfig string) {
 	bin, err := runtime.ExtractPath()
 	if err != nil {
 		return
@@ -282,9 +282,9 @@ func unmountUnder(dir string) {
 // runtimeTag returns a short identifier for the extracted runtime (its filename).
 func runtimeTag(bin string) string { return filepath.Base(bin) }
 
-// EmbeddedKubectl returns the embedded runtime's kubectl entrypoint (the runtime
+// StandaloneKubectl returns the standalone runtime's kubectl entrypoint (the runtime
 // binary is multicall: `<bin> kubectl ...`). ok is false if not compiled in.
-func EmbeddedKubectl() (bin string, ok bool) {
+func StandaloneKubectl() (bin string, ok bool) {
 	p, err := runtime.ExtractPath()
 	if err != nil {
 		return "", false

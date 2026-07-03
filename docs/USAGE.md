@@ -88,6 +88,16 @@ go install github.com/orcinustools/orcinus/cmd/orcinus@latest
 The cluster-lifecycle commands (`init`/`join`/`status`/`down`) require a container
 runtime on the host. Workload commands only need access to a cluster.
 
+**Standalone binary.** Each release also attaches `orcinus-standalone`
+(linux/amd64) — a single self-contained binary with the runtime built in, for the
+`--runtime standalone` provider (no container runtime needed). See
+[CLUSTER.md → Runtime providers](CLUSTER.md#runtime-providers).
+
+**Releases & versioning.** Releases are **tag-driven**: pushing a `vX.Y.Z` tag
+triggers GitHub Actions → GoReleaser, which builds all binaries, stamps the
+version (`orcinus version` reports it), and publishes a GitHub Release with
+archives + `checksums.txt`.
+
 ---
 
 ## 3. Core Concepts
@@ -190,7 +200,7 @@ orcinus cluster init [flags]
 | `--cluster-init` | `false` | Embedded etcd (HA mode) — see [§6](#6-datastore) |
 | `--datastore-endpoint <str>` | SQLite | External datastore — see [§6](#6-datastore) |
 | `--kubeconfig <path>` | `~/.orcinus/kubeconfig` | Where to write the kubeconfig |
-| `--runtime <docker\|embedded>` | `docker` | Runtime provider — see the note below |
+| `--runtime <docker\|standalone>` | `docker` | Runtime provider — see the note below |
 | `--server-arg <arg>` | — | Extra runtime server argument (repeatable), e.g. `--server-arg --snapshotter=native` |
 
 ```bash
@@ -203,10 +213,10 @@ On success it prints the kubeconfig path and a ready-to-paste `orcinus cluster j
 
 > **Runtime provider (`--runtime`).** The default `docker` provider runs the
 > cluster in a container — no privileges beyond a container runtime, works
-> anywhere. The `embedded` provider runs the runtime **natively on the host** as
+> anywhere. The `standalone` provider runs the runtime **natively on the host** as
 > a managed process with **no container runtime required** — a single
 > self-contained binary. It is opt-in: only the binary built with
-> `make orcinus-embedded` has the runtime built in (the default binary returns a
+> `make orcinus-standalone` has the runtime built in (the default binary returns a
 > clear error). It needs root and a real host (systemd-style cgroups). See
 > [CLUSTER.md → Runtime providers](CLUSTER.md#runtime-providers).
 

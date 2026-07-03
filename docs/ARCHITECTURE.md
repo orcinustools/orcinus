@@ -7,7 +7,7 @@
 >
 > **Language:** Go (no CGO). **License:** MIT (see [§8](#8-licensing--attribution)).
 > **Strategy:** run a lightweight Kubernetes runtime (managed by a container
-> provider by default, or embedded into a single binary), and **fork kompose** so
+> provider by default, or standalone into a single binary), and **fork kompose** so
 > compose conversion is fully Docker Compose compatible and entirely under
 > orcinus's control.
 
@@ -53,7 +53,7 @@ approximated; `networks` are ignored in favor of flat cluster networking.
    Compose spec exactly and carry the `x-orcinus-*` mapping — actively maintained
    (periodic rebase), not a dead/rebranded fork.
 2. **One binary, many faces (multicall).** The first subcommand selects the mode;
-   the same binary can also *be* the runtime (`orcinus runtime …`) in the embedded
+   the same binary can also *be* the runtime (`orcinus runtime …`) in the standalone
    build.
 3. **Compose is a first-class citizen.** Conversion is integrated into the deploy
    flow, not a separate step.
@@ -96,14 +96,14 @@ Rollout, strategy).
                        │  deploy / rm                    → pkg/compose ─┐ │
                        │  ls / ps / logs / scale / autoscale / rollback │ │
                        │  secret / plugin / kubectl                     │ │
-                       │  runtime (embedded build only)  → pkg/runtime  │ │
+                       │  runtime (standalone build only)  → pkg/runtime  │ │
                        └───────────────────────────────────────────────┘ │
                               │              │                            │
               provider select │              │ client-go (SSA/prune)      │ fork
                     ┌─────────┴────────┐     ▼                            ▼
                     ▼                  ▼   ┌────────────────┐   ┌────────────────────┐
         ┌────────────────────┐ ┌──────────┴──────┐          │   │  pkg/compose       │
-        │ docker provider    │ │ embedded provider│          │   │  (forked kompose)  │
+        │ docker provider    │ │ standalone provider│          │   │  (forked kompose)  │
         │ runtime in a       │ │ runtime native   │          │   │  loader→transform  │
         │ container          │ │ on the host      │          │   │  →decorate→objects │
         └─────────┬──────────┘ └────────┬─────────┘          │   └────────────────────┘
@@ -137,14 +137,14 @@ then applies with a **fresh** REST mapper so the new CRDs resolve.
 | `pkg/compose` | Load compose (forked kompose), transform to k8s objects, decorate, `x-orcinus-*`, HPA, Rollout, strategy/update_config |
 | `pkg/detect`  | Classify each YAML doc as compose vs raw manifest |
 | `pkg/deploy`  | Server-side apply, ownership prune, wait/readiness, scale, autoscale, rollback, secrets, project listing |
-| `pkg/cluster` | Cluster lifecycle (init/join/status/down); two runtime providers (`docker`, `embedded`); kubeconfig + state |
+| `pkg/cluster` | Cluster lifecycle (init/join/status/down); two runtime providers (`docker`, `standalone`); kubeconfig + state |
 | `pkg/plugin`  | Built-in add-on catalog (ingress/TLS, storage, autoscale, rollouts, registry, dashboards) + profiles; install/upgrade/remove |
-| `pkg/runtime` | The embedded runtime: `go:embed` the runtime binary (build tag `embedruntime`), extract + exec; stub otherwise |
+| `pkg/runtime` | The standalone runtime: `go:embed` the runtime binary (build tag `standalone`), extract + exec; stub otherwise |
 | `pkg/version` | Build version, embedded component versions |
 
 Command surface (all under `orcinus`): `cluster {init,join,status,down}`,
 `deploy`, `rm`, `ls`, `ps`, `logs`, `scale`, `autoscale`, `rollback`, `secret`,
-`plugin {install,list,upgrade,remove}`, `kubectl` (passthrough), and (embedded
+`plugin {install,list,upgrade,remove}`, `kubectl` (passthrough), and (standalone
 build) the hidden `runtime` passthrough. See [USAGE.md §5](USAGE.md) for the full
 reference.
 
@@ -203,22 +203,22 @@ See [USAGE.md](USAGE.md), [DEPLOYMENT.md](DEPLOYMENT.md) and
 
 ## 8. Runtime Providers
 
-`orcinus cluster init --runtime <docker|embedded>` selects how the cluster runs.
+`orcinus cluster init --runtime <docker|standalone>` selects how the cluster runs.
 
 1. **`docker` (default).** Orcinus drives a container-based runtime (docker
    command from `$ORCINUS_DOCKER`). No special build, works anywhere a container
    runtime runs; this is the fully-tested default path. `cluster init` also
    best-effort enables the bundled metrics-server so HPAs get metrics.
 
-2. **`embedded` (opt-in build).** The runtime is bundled into the orcinus binary
+2. **`standalone` (opt-in build).** The runtime is bundled into the orcinus binary
    via `go:embed` (`pkg/runtime`) and run **natively on the host as a managed
    process** — no container runtime, a single self-contained binary. It is
-   compiled only into the binary built with `make orcinus-embedded` (build tag
-   `embedruntime`); the default binary returns a clear "not compiled in" error, so
+   compiled only into the binary built with `make orcinus-standalone` (build tag
+   `standalone`); the default binary returns a clear "not compiled in" error, so
    it stays lean. The same binary can also *be* the runtime via the hidden
    `orcinus runtime …` passthrough.
 
-   Validated end-to-end on a real host: `init --runtime embedded` → node Ready →
+   Validated end-to-end on a real host: `init --runtime standalone` → node Ready →
    workload Running → `cluster down` reaps the server, its containerd shims and
    mounts with no residue; `orcinus kubectl` routes through the built-in kubectl.
    It needs **root** and a **real host** with cgroup delegation (systemd-style);
@@ -242,11 +242,11 @@ See [CLUSTER.md → Runtime providers](CLUSTER.md#runtime-providers) for usage.
 ## 10. Building & Prerequisites
 
 - **Build.** Standard Go toolchain, no CGO. `make build` produces the default
-  `orcinus`; `make orcinus-embedded` produces the single self-contained binary
+  `orcinus`; `make orcinus-standalone` produces the single self-contained binary
   with the runtime built in (downloads the runtime asset once via `make
   runtime-asset`).
 - **Running a cluster.** The `docker` provider needs a container runtime on the
-  host (`$ORCINUS_DOCKER`, default `docker`). The `embedded` provider needs root
+  host (`$ORCINUS_DOCKER`, default `docker`). The `standalone` provider needs root
   and a real host, but **no** container runtime.
 - **Deploying only.** Conversion and `deploy` against an existing cluster need
   neither — just a kubeconfig.
