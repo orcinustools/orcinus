@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/orcinustools/orcinus/main/.github/assets/orcinus-logo.svg" alt="Orcinus" width="260">
 </p>
 
-# Orcinus — Simple, less drama.
+# Orcinus — Orchestrate the pod.
 
 A lightweight cluster runtime that runs your **`docker-compose.yml` files and
 Kubernetes manifests natively — no translation, no drama.** One binary: run a
