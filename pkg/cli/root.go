@@ -32,6 +32,7 @@ func NewRootCmd() *cobra.Command {
 		newSecretCmd(),
 		newKubectlCmd(),
 		newRuntimeCmd(),
+		newAPICmd(),
 		newVersionCmd(),
 	)
 	return root

@@ -11,15 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/orcinustools/orcinus/pkg/compose"
 	"github.com/orcinustools/orcinus/pkg/deploy"
-	"github.com/orcinustools/orcinus/pkg/detect"
-	"github.com/orcinustools/orcinus/pkg/plugin"
-
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/yaml"
+	"github.com/orcinustools/orcinus/pkg/engine"
 )
 
 type deployOpts struct {
@@ -63,10 +56,6 @@ func newDeployCmd() *cobra.Command {
 }
 
 func runDeploy(cmd *cobra.Command, o *deployOpts) error {
-	mode, err := detect.ParseMode(o.as)
-	if err != nil {
-		return err
-	}
 	if o.project == "" {
 		if wd, err := os.Getwd(); err == nil {
 			o.project = filepath.Base(wd)
@@ -84,70 +73,33 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "using %s\n", found)
 	}
 
-	// Read every source and split into individual YAML documents, classifying
-	// each as compose or manifest.
-	var composeDocs [][]byte
-	var manifestObjs []runtime.Object
-
+	// Read every source (file, URL, or stdin) into raw bytes.
+	var sources [][]byte
 	for _, src := range o.files {
 		raw, err := readSource(src, cmd.InOrStdin())
 		if err != nil {
 			return err
 		}
-		docs, err := detect.SplitDocuments(raw)
-		if err != nil {
-			return fmt.Errorf("%s: %w", src, err)
-		}
-		for _, doc := range docs {
-			kind, err := detect.Classify(doc, mode)
-			if err != nil {
-				return fmt.Errorf("%s: %w", src, err)
-			}
-			switch kind {
-			case detect.KindCompose:
-				composeDocs = append(composeDocs, doc)
-			case detect.KindManifest:
-				obj, err := decodeManifest(doc)
-				if err != nil {
-					return fmt.Errorf("%s: %w", src, err)
-				}
-				manifestObjs = append(manifestObjs, obj)
-			}
-		}
+		sources = append(sources, raw)
 	}
 
-	objects := manifestObjs
-
-	// Convert the compose documents (if any) through the forked kompose engine.
-	if len(composeDocs) > 0 {
-		tmpDir, err := os.MkdirTemp("", "orcinus-deploy-")
-		if err != nil {
-			return err
-		}
-		defer os.RemoveAll(tmpDir)
-		var files []string
-		for i, doc := range composeDocs {
-			p := filepath.Join(tmpDir, fmt.Sprintf("compose-%02d.yml", i))
-			if err := os.WriteFile(p, doc, 0o600); err != nil {
-				return err
-			}
-			files = append(files, p)
-		}
-		converted, err := compose.Convert(compose.Options{
-			Files:       files,
-			ProjectName: o.project,
-			Namespace:   o.namespace,
-			Replicas:    o.replicas,
-			PVCSize:     o.pvcSize,
-		})
-		if err != nil {
-			return err
-		}
-		objects = append(objects, converted...)
+	req := engine.Request{
+		Project:     o.project,
+		Namespace:   o.namespace,
+		Mode:        o.as,
+		Replicas:    o.replicas,
+		PVCSize:     o.pvcSize,
+		Kubeconfig:  o.kubeconfig,
+		Prune:       o.prune,
+		Wait:        o.wait,
+		ACMEEmail:   o.acmeEmail,
+		AutoInstall: true,
 	}
 
-	if len(objects) == 0 {
-		return fmt.Errorf("no compose services or manifests found in input")
+	// detect + convert (compose) / passthrough (manifest).
+	objects, err := engine.BuildObjects(sources, req)
+	if err != nil {
+		return err
 	}
 
 	if o.output != "" {
@@ -156,7 +108,6 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d object(s) to %s\n", len(objects), o.output)
 	}
-
 	if o.dryRun {
 		out, err := deploy.Render(objects)
 		if err != nil {
@@ -166,45 +117,23 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		return err
 	}
 
-	// If a service asked for TLS (x-orcinus-tls) and cert-manager isn't present,
-	// auto-install it when an ACME email is available; otherwise guide the user.
-	if needsCertManager(objects) && !plugin.Installed("cert-manager") {
-		if o.acmeEmail == "" {
-			return fmt.Errorf("x-orcinus-tls needs cert-manager; run `orcinus plugin install cert-manager --email you@example.com` or pass --acme-email")
-		}
-		fmt.Fprintln(cmd.ErrOrStderr(), "installing cert-manager (required by x-orcinus-tls)...")
-		if err := plugin.Install(cmd.Context(), "cert-manager", plugin.Options{Kubeconfig: o.kubeconfig, Email: o.acmeEmail}); err != nil {
-			return err
-		}
+	// Auto-install cert-manager / argo-rollouts if the input requires them.
+	if engine.NeedsCertManager(objects) && o.acmeEmail == "" {
+		return fmt.Errorf("x-orcinus-tls needs cert-manager; run `orcinus plugin install cert-manager --email you@example.com` or pass --acme-email")
+	}
+	installed, err := engine.AutoInstall(cmd.Context(), objects, req)
+	if err != nil {
+		return err
+	}
+	for _, p := range installed {
+		fmt.Fprintf(cmd.ErrOrStderr(), "installed %s (required by the input)\n", p)
 	}
 
-	// x-orcinus-rollout needs Argo Rollouts (no options) — auto-install if absent.
-	if needsArgoRollouts(objects) && !plugin.Installed("argo-rollouts") {
-		fmt.Fprintln(cmd.ErrOrStderr(), "installing argo-rollouts (required by x-orcinus-rollout)...")
-		if err := plugin.Install(cmd.Context(), "argo-rollouts", plugin.Options{Kubeconfig: o.kubeconfig}); err != nil {
-			return err
-		}
-	}
-
-	// Apply to the cluster via server-side apply (+ prune + optional wait).
-	cfg, err := deploy.LoadRESTConfig(o.kubeconfig)
+	applied, err := engine.Apply(cmd.Context(), objects, req)
 	if err != nil {
 		return err
 	}
-	applier, err := deploy.NewApplier(cfg)
-	if err != nil {
-		return err
-	}
-	applied, err := applier.Apply(cmd.Context(), objects, deploy.ApplyOptions{
-		Project:          o.project,
-		DefaultNamespace: o.namespace,
-		Prune:            o.prune,
-		Wait:             o.wait,
-	})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "applied %d object(s) as project %q\n", len(applied), o.project)
+	fmt.Fprintf(cmd.ErrOrStderr(), "applied %d object(s) as project %q\n", applied, o.project)
 	return nil
 }
 
@@ -255,36 +184,3 @@ func readURL(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// needsCertManager reports whether any object requests a cert-manager issuer.
-func needsCertManager(objects []runtime.Object) bool {
-	for _, o := range objects {
-		acc, err := meta.Accessor(o)
-		if err != nil {
-			continue
-		}
-		if _, ok := acc.GetAnnotations()["cert-manager.io/cluster-issuer"]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-// needsArgoRollouts reports whether any object is an Argo Rollout.
-func needsArgoRollouts(objects []runtime.Object) bool {
-	for _, o := range objects {
-		gvk := o.GetObjectKind().GroupVersionKind()
-		if gvk.Group == "argoproj.io" && gvk.Kind == "Rollout" {
-			return true
-		}
-	}
-	return false
-}
-
-// decodeManifest turns a raw k8s YAML document into an unstructured object.
-func decodeManifest(doc []byte) (runtime.Object, error) {
-	m := map[string]interface{}{}
-	if err := yaml.Unmarshal(doc, &m); err != nil {
-		return nil, fmt.Errorf("parse manifest: %w", err)
-	}
-	return &unstructured.Unstructured{Object: m}, nil
-}

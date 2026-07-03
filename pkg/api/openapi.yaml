@@ -1,0 +1,382 @@
+openapi: 3.0.3
+info:
+  title: Orcinus API
+  description: |
+    REST API for orcinus — Compose-simple, Cluster-strong. Deploy docker-compose
+    files and Kubernetes manifests, manage projects, scale, secrets, plugins and
+    inspect the cluster. Served by `orcinus api`.
+
+    All `/api/v1/*` routes require `Authorization: Bearer <token>` when the server
+    was started with a token; `/healthz`, `/version`, `/openapi.json` and `/docs`
+    are always open.
+  version: "1.0"
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: system
+  - name: deploy
+  - name: projects
+  - name: secrets
+  - name: plugins
+  - name: cluster
+paths:
+  /healthz:
+    get:
+      tags: [system]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { status: { type: string, example: ok } }
+  /version:
+    get:
+      tags: [system]
+      summary: Build & component versions
+      security: []
+      responses:
+        "200":
+          description: version info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string }
+                  gitCommit: { type: string }
+                  kompose: { type: string }
+  /api/v1/convert:
+    post:
+      tags: [deploy]
+      summary: Render input to Kubernetes manifests (no apply)
+      description: Accepts a JSON DeployRequest, or a raw compose/manifest body with options as query params.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeployRequest" }
+          application/yaml:
+            schema: { type: string }
+      responses:
+        "200":
+          description: rendered manifests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  objects: { type: integer }
+                  manifests: { type: string, description: multi-document YAML }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/deploy:
+    post:
+      tags: [deploy]
+      summary: Convert and apply input to the cluster
+      description: |
+        Detects compose vs manifest per document, converts, auto-installs any
+        required plugins (cert-manager for x-orcinus-tls, argo-rollouts for
+        x-orcinus-rollout), then server-side-applies with ownership labels.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeployRequest" }
+          application/yaml:
+            schema: { type: string }
+      responses:
+        "200":
+          description: applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applied: { type: integer }
+                  project: { type: string }
+                  installed: { type: array, items: { type: string } }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/projects:
+    get:
+      tags: [projects]
+      summary: List deployed projects
+      parameters:
+        - { name: namespace, in: query, schema: { type: string }, description: limit to one namespace }
+      responses:
+        "200":
+          description: projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProjectSummary" }
+  /api/v1/projects/{project}:
+    delete:
+      tags: [projects]
+      summary: Remove a project's resources
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: removed count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { removed: { type: integer } }
+  /api/v1/projects/{project}/pods:
+    get:
+      tags: [projects]
+      summary: List a project's pods
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: pods
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pods:
+                    type: array
+                    items: { $ref: "#/components/schemas/PodInfo" }
+  /api/v1/projects/{project}/services/{service}/scale:
+    post:
+      tags: [projects]
+      summary: Scale a service
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string } }
+        - { name: service, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { replicas: { type: integer } }
+              required: [replicas]
+      responses:
+        "200":
+          description: scaled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scaled: { type: string }
+                  replicas: { type: integer }
+  /api/v1/projects/{project}/services/{service}/rollback:
+    post:
+      tags: [projects]
+      summary: Roll a service back to its previous revision
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string } }
+        - { name: service, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: rolled back
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { result: { type: string } }
+  /api/v1/secrets:
+    get:
+      tags: [secrets]
+      summary: List secrets
+      parameters:
+        - { name: namespace, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: secrets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secrets:
+                    type: array
+                    items: { $ref: "#/components/schemas/SecretInfo" }
+    post:
+      tags: [secrets]
+      summary: Create or update an opaque secret
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  namespace: { type: string }
+                  keys: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/secrets/{name}:
+    delete:
+      tags: [secrets]
+      summary: Delete a secret
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+      responses:
+        "204": { description: deleted }
+  /api/v1/plugins:
+    get:
+      tags: [plugins]
+      summary: List available plugins and install state
+      responses:
+        "200":
+          description: plugins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plugins:
+                    type: array
+                    items: { $ref: "#/components/schemas/PluginInfo" }
+  /api/v1/plugins/{name}:
+    post:
+      tags: [plugins]
+      summary: Install a plugin
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PluginRequest" }
+      responses:
+        "200":
+          description: installed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { installed: { type: string } }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [plugins]
+      summary: Remove a plugin
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: removed }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/cluster:
+    get:
+      tags: [cluster]
+      summary: Cluster status (from saved state)
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  running: { type: boolean }
+                  server: { type: string }
+                  runtime: { type: string }
+                  kubeconfig: { type: string }
+                  nodes: { type: string }
+        "503": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    Error:
+      description: error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties: { error: { type: string } }
+    DeployRequest:
+      type: object
+      required: [source]
+      properties:
+        source: { type: string, description: compose and/or manifest YAML (multi-doc) }
+        project: { type: string, default: default }
+        namespace: { type: string }
+        mode: { type: string, enum: ["", compose, manifest] }
+        replicas: { type: integer }
+        pvcSize: { type: string, example: 1Gi }
+        prune: { type: boolean, default: true }
+        wait: { type: boolean }
+        acmeEmail: { type: string }
+    ProjectSummary:
+      type: object
+      properties:
+        Name: { type: string }
+        Namespaces: { type: array, items: { type: string } }
+        Workloads: { type: integer }
+        Ready: { type: integer }
+    PodInfo:
+      type: object
+      properties:
+        Name: { type: string }
+        Namespace: { type: string }
+        Service: { type: string }
+        Ready: { type: string }
+        Status: { type: string }
+        Restarts: { type: integer }
+        Node: { type: string }
+    SecretInfo:
+      type: object
+      properties:
+        Name: { type: string }
+        Type: { type: string }
+        Keys: { type: integer }
+        ManagedBy: { type: boolean }
+    SecretRequest:
+      type: object
+      required: [name, data]
+      properties:
+        name: { type: string }
+        namespace: { type: string, default: default }
+        data:
+          type: object
+          additionalProperties: { type: string }
+    PluginInfo:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        version: { type: string }
+        providers: { type: array, items: { type: string } }
+        installed: { type: boolean }
+    PluginRequest:
+      type: object
+      properties:
+        email: { type: string }
+        staging: { type: boolean }
+        provider: { type: string }
+        size: { type: string }
+        replicas: { type: integer }
+        nfsServer: { type: string }
+        nfsPath: { type: string }
