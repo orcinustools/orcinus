@@ -26,6 +26,8 @@ const (
 	extStripPrefix = "x-orcinus-strip-prefix" // Traefik StripPrefix: true (strip the path) | prefix | list of prefixes
 	extMiddleware  = "x-orcinus-middleware"   // Traefik middleware name(s) to attach to the ingress route (in order)
 
+	extImagePullSecret = "x-orcinus-image-pull-secret" // imagePullSecret name(s) for a private registry
+
 	extAutoscaleMin = "x-orcinus-autoscale-min"    // HPA min replicas
 	extAutoscaleMax = "x-orcinus-autoscale-max"    // HPA max replicas (enables HPA)
 	extAutoscaleCPU = "x-orcinus-autoscale-cpu"    // HPA target CPU %
@@ -96,6 +98,8 @@ type preprocessed struct {
 	strategy map[string]strategyCfg
 	// rollout maps a service name to an Argo Rollout kind (canary|bluegreen).
 	rollout map[string]string
+	// imagePullSecrets maps a service name to imagePullSecret names (private registry).
+	imagePullSecrets map[string][]string
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
@@ -110,8 +114,9 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		secrets:   map[string][]string{},
 		ingress:   map[string]ingressCfg{},
 		autoscale: map[string]autoscaleCfg{},
-		strategy:  map[string]strategyCfg{},
-		rollout:   map[string]string{},
+		strategy:         map[string]strategyCfg{},
+		rollout:          map[string]string{},
+		imagePullSecrets: map[string][]string{},
 	}
 
 	servicesAny, ok := doc["services"].(map[string]interface{})
@@ -224,6 +229,11 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		}
 		if sc != (strategyCfg{}) {
 			out.strategy[name] = sc
+		}
+
+		// Private-registry pull secrets → pod imagePullSecrets.
+		if secrets := stringSliceExt(svc[extImagePullSecret]); len(secrets) > 0 {
+			out.imagePullSecrets[name] = secrets
 		}
 
 		// Progressive delivery via Argo Rollout.

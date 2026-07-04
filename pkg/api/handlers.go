@@ -254,6 +254,42 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"name": body.Name, "namespace": ns, "keys": len(data)})
 }
 
+// RegistrySecretRequest is the body for creating a private-registry pull secret.
+type RegistrySecretRequest struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Server    string `json:"server"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	Email     string `json:"email"`
+}
+
+func (s *Server) handleCreateRegistrySecret(w http.ResponseWriter, r *http.Request) {
+	var body RegistrySecretRequest
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Name == "" || body.Server == "" || body.Username == "" || body.Password == "" {
+		writeErr(w, http.StatusBadRequest, "name, server, username and password are required")
+		return
+	}
+	ns := body.Namespace
+	if ns == "" {
+		ns = "default"
+	}
+	a, err := s.applier()
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	if err := a.ApplyDockerRegistrySecret(r.Context(), ns, body.Name, body.Server, body.Username, body.Password, body.Email); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"name": body.Name, "namespace": ns, "server": body.Server})
+}
+
 func (s *Server) handleDeleteSecret(w http.ResponseWriter, r *http.Request) {
 	a, err := s.applier()
 	if err != nil {

@@ -14,6 +14,7 @@ manifests required.
 - **Deployment & update strategies:** [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 - **Cluster setup (single / multi-node / HA):** [`docs/CLUSTER.md`](./docs/CLUSTER.md)
 - **Ingress & Traefik middlewares:** [`docs/INGRESS.md`](./docs/INGRESS.md)
+- **Private image registries:** [`docs/REGISTRY.md`](./docs/REGISTRY.md)
 - **HTTP REST API (+ OpenAPI/Swagger):** [`docs/API.md`](./docs/API.md)
 - **Plugins & cluster add-ons:** [`docs/PLUGINS.md`](./docs/PLUGINS.md)
 - **High-availability storage:** [`docs/HA-STORAGE.md`](./docs/HA-STORAGE.md)

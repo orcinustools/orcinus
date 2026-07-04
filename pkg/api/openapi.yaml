@@ -230,6 +230,27 @@ paths:
                   namespace: { type: string }
                   keys: { type: integer }
         "400": { $ref: "#/components/responses/Error" }
+  /api/v1/secrets/docker-registry:
+    post:
+      tags: [secrets]
+      summary: Create/update a private-registry pull secret (docker login)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegistrySecretRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  namespace: { type: string }
+                  server: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
   /api/v1/secrets/{name}:
     delete:
       tags: [secrets]
@@ -362,6 +383,16 @@ components:
         data:
           type: object
           additionalProperties: { type: string }
+    RegistrySecretRequest:
+      type: object
+      required: [name, server, username, password]
+      properties:
+        name: { type: string }
+        namespace: { type: string, default: default }
+        server: { type: string, example: registry.example.com }
+        username: { type: string }
+        password: { type: string }
+        email: { type: string }
     PluginInfo:
       type: object
       properties:

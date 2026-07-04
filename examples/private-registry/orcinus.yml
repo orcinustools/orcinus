@@ -1,0 +1,21 @@
+# Pull an image from a private registry.
+#
+# 1) Create the pull secret (once, in the same namespace you deploy to):
+#
+#      orcinus secret create-registry regcred \
+#        --server registry.example.com --username "$USER" --password "$TOKEN"
+#
+# 2) Deploy — the service references the secret via x-orcinus-image-pull-secret:
+#
+#      orcinus deploy -f orcinus.yml --wait
+#
+# See docs/REGISTRY.md for cluster-wide attach and common registries (ghcr.io, docker.io).
+
+services:
+  app:
+    image: registry.example.com/team/app:1.0   # ← your private image
+    ports:
+      - "8080"
+    x-orcinus-image-pull-secret: regcred        # name or list: [regcred, ghcr]
+    x-orcinus-expose: ingress
+    x-orcinus-host: app.example.com             # ← change to your host

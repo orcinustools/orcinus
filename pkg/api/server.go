@@ -51,6 +51,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/projects/{project}/services/{service}/rollback", s.handleRollback)
 	mux.HandleFunc("GET /api/v1/secrets", s.handleListSecrets)
 	mux.HandleFunc("POST /api/v1/secrets", s.handleCreateSecret)
+	mux.HandleFunc("POST /api/v1/secrets/docker-registry", s.handleCreateRegistrySecret)
 	mux.HandleFunc("DELETE /api/v1/secrets/{name}", s.handleDeleteSecret)
 	mux.HandleFunc("GET /api/v1/plugins", s.handleListPlugins)
 	mux.HandleFunc("POST /api/v1/plugins/{name}", s.handleInstallPlugin)

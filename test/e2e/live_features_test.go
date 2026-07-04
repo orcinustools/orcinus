@@ -353,6 +353,37 @@ func TestLiveSecret(t *testing.T) {
 	}
 }
 
+// TestLiveRegistry: create a private-registry pull secret and confirm it's a
+// dockerconfigjson secret, then deploy a service that attaches it via
+// x-orcinus-image-pull-secret and verify the pod template references it.
+func TestLiveRegistry(t *testing.T) {
+	requireLive(t)
+	orcinus, kubectl := liveCluster(t, "orcinus-reg", 16486)
+
+	if out, err := orcinus("secret", "create-registry", "regcred",
+		"--server", "registry.example.com", "-u", "user", "-p", "s3cret"); err != nil {
+		t.Fatalf("create-registry: %v\n%s", err, out)
+	}
+	if got, _ := kubectl("get", "secret", "regcred", "-o", "jsonpath={.type}"); got != "kubernetes.io/dockerconfigjson" {
+		t.Errorf("secret type = %q, want kubernetes.io/dockerconfigjson", got)
+	}
+
+	f := writeCompose(t, `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-image-pull-secret: regcred
+`)
+	if out, err := orcinus("deploy", "-f", f, "--project", "reg", "--wait"); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out)
+	}
+	if got, _ := kubectl("get", "deploy", "web", "-o",
+		"jsonpath={.spec.template.spec.imagePullSecrets[0].name}"); got != "regcred" {
+		t.Errorf("pod imagePullSecrets[0] = %q, want regcred", got)
+	}
+}
+
 // TestLiveCustomCert: a bring-your-own TLS cert (secret create-tls) served via
 // Ingress with x-orcinus-tls-secret — no external domain needed (uses --resolve).
 func TestLiveCustomCert(t *testing.T) {

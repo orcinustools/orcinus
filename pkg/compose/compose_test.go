@@ -486,6 +486,29 @@ services:
 	}
 }
 
+// TestConvertImagePullSecret: x-orcinus-image-pull-secret → pod imagePullSecrets.
+func TestConvertImagePullSecret(t *testing.T) {
+	const f = `
+services:
+  app:
+    image: registry.example.com/team/app:1.0
+    ports: ["8080"]
+    x-orcinus-image-pull-secret: [regcred, ghcr]
+`
+	for _, o := range convertString(t, f) {
+		dep, ok := o.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+		ps := dep.Spec.Template.Spec.ImagePullSecrets
+		if len(ps) != 2 || ps[0].Name != "regcred" || ps[1].Name != "ghcr" {
+			t.Fatalf("imagePullSecrets = %+v, want [regcred ghcr]", ps)
+		}
+		return
+	}
+	t.Fatal("no Deployment generated")
+}
+
 // TestConvertStripPrefixExplicit: an explicit prefix list is used verbatim.
 func TestConvertStripPrefixExplicit(t *testing.T) {
 	const f = `

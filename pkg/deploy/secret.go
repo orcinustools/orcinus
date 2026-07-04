@@ -2,6 +2,8 @@ package deploy
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"sort"
 
 	"github.com/orcinustools/orcinus/pkg/compose"
@@ -37,6 +39,31 @@ func (a *Applier) ApplySecret(ctx context.Context, namespace, name string, typ c
 	}
 	_, err := secrets.Create(ctx, sec, metav1.CreateOptions{})
 	return err
+}
+
+// BuildDockerConfigJSON returns the `.dockerconfigjson` payload for a private
+// registry login (the same format `docker login` writes and Kubernetes expects
+// in a kubernetes.io/dockerconfigjson Secret used as an imagePullSecret).
+func BuildDockerConfigJSON(server, username, password, email string) ([]byte, error) {
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	entry := map[string]string{"username": username, "password": password, "auth": auth}
+	if email != "" {
+		entry["email"] = email
+	}
+	return json.Marshal(map[string]interface{}{
+		"auths": map[string]interface{}{server: entry},
+	})
+}
+
+// ApplyDockerRegistrySecret creates/updates a kubernetes.io/dockerconfigjson
+// Secret for pulling images from a private registry (an imagePullSecret).
+func (a *Applier) ApplyDockerRegistrySecret(ctx context.Context, namespace, name, server, username, password, email string) error {
+	dockercfg, err := BuildDockerConfigJSON(server, username, password, email)
+	if err != nil {
+		return err
+	}
+	return a.ApplySecret(ctx, namespace, name, corev1.SecretTypeDockerConfigJson,
+		map[string][]byte{corev1.DockerConfigJsonKey: dockercfg})
 }
 
 // ListSecrets returns the Secrets in a namespace.

@@ -513,6 +513,7 @@ Manage Kubernetes Secrets — including bring-your-own TLS certs.
 ```
 orcinus secret create <name> --from-literal KEY=VALUE [...]
 orcinus secret create-tls <name> --cert <file> --key <file>
+orcinus secret create-registry <name> --server <host> -u <user> -p <pass>
 orcinus secret ls
 orcinus secret rm <name>
 ```
@@ -521,6 +522,7 @@ orcinus secret rm <name>
 |---|---|
 | `create` | Opaque secret from `--from-literal KEY=VALUE` (repeatable) |
 | `create-tls` | TLS secret from a PEM cert + key — reference with `x-orcinus-tls-secret` |
+| `create-registry` | Private-registry pull secret (docker login) — reference with `x-orcinus-image-pull-secret` (see [`REGISTRY.md`](./REGISTRY.md)) |
 | `ls` | List secrets (name, type, key count, whether orcinus-managed) |
 | `rm` | Delete a secret |
 
@@ -530,6 +532,7 @@ secrets are labelled `managed-by=orcinus`.
 ```bash
 orcinus secret create db-creds --from-literal PASSWORD=s3cr3t
 orcinus secret create-tls mysite-cert --cert fullchain.pem --key privkey.pem
+orcinus secret create-registry regcred --server ghcr.io -u me -p "$GHCR_PAT"
 ```
 
 ### 5.14 `orcinus plugin`
@@ -660,6 +663,7 @@ keys; orcinus parses them during conversion.
 | `x-orcinus-ingress-class` | `traefik` \| `nginx` \| … | Ingress class to use |
 | `x-orcinus-strip-prefix` | `true` \| prefix \| list | Traefik **StripPrefix**: strip the path prefix so the backend sees `/` (see [INGRESS.md](./INGRESS.md)) |
 | `x-orcinus-middleware` | middleware name or list | Attach Traefik **middleware(s)** to the route, in order (rate limit, headers, auth, redirect, …) |
+| `x-orcinus-image-pull-secret` | secret name or list | Attach **imagePullSecret(s)** for a private registry (see [`REGISTRY.md`](./REGISTRY.md)) |
 | `x-orcinus-autoscale-min` | int | HPA min replicas (default 1) |
 | `x-orcinus-autoscale-max` | int | HPA max replicas (**enables** the HPA) |
 | `x-orcinus-autoscale-cpu` | int | HPA target CPU utilization % (default 80 if no metric) |

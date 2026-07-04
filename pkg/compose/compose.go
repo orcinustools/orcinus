@@ -74,6 +74,7 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	autoscaleCfgs := map[string]autoscaleCfg{}
 	strategyCfgs := map[string]strategyCfg{}
 	rolloutCfgs := map[string]string{}
+	pullSecrets := map[string][]string{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
@@ -98,6 +99,9 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, kind := range pp.rollout {
 			rolloutCfgs[svc] = kind
+		}
+		for svc, names := range pp.imagePullSecrets {
+			pullSecrets[svc] = names
 		}
 		tmp := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s", i, filepath.Base(f)))
 		if err := os.WriteFile(tmp, pp.content, 0o600); err != nil {
@@ -146,6 +150,10 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	// 6. Apply ingress hints (TLS/path/port/class/Traefik middlewares) to the
 	//    generated Ingresses; may generate Traefik Middleware CRDs.
 	objects = append(objects, applyIngressConfig(objects, ingressCfgs, opts)...)
+
+	// 6b. Attach private-registry imagePullSecrets to workloads (before Rollout
+	//     conversion so Rollouts inherit them from the Deployment template).
+	applyImagePullSecrets(objects, pullSecrets)
 
 	// 7. Convert Deployments to Argo Rollouts for x-orcinus-rollout services.
 	objects, rolloutSvcs, err := convertRollouts(objects, rolloutCfgs)
@@ -645,6 +653,33 @@ func applySecrets(objects []runtime.Object, secrets map[string][]string, opts Op
 }
 
 // podSpecOf returns the pod spec and workload name for supported controllers.
+// applyImagePullSecrets adds imagePullSecrets to each workload's pod template for
+// services that named a private-registry secret via x-orcinus-image-pull-secret.
+func applyImagePullSecrets(objects []runtime.Object, cfgs map[string][]string) {
+	if len(cfgs) == 0 {
+		return
+	}
+	for _, obj := range objects {
+		ps, name := podSpecOf(obj)
+		if ps == nil {
+			continue
+		}
+		names, ok := cfgs[name]
+		if !ok {
+			continue
+		}
+		have := map[string]bool{}
+		for _, r := range ps.ImagePullSecrets {
+			have[r.Name] = true
+		}
+		for _, n := range names {
+			if !have[n] {
+				ps.ImagePullSecrets = append(ps.ImagePullSecrets, corev1.LocalObjectReference{Name: n})
+			}
+		}
+	}
+}
+
 func podSpecOf(obj runtime.Object) (*corev1.PodSpec, string) {
 	switch t := obj.(type) {
 	case *appsv1.Deployment:

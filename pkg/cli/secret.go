@@ -18,7 +18,7 @@ func newSecretCmd() *cobra.Command {
 		Use:   "secret",
 		Short: "Manage Kubernetes Secrets (generic and TLS)",
 	}
-	cmd.AddCommand(newSecretCreateCmd(), newSecretCreateTLSCmd(), newSecretLsCmd(), newSecretRmCmd())
+	cmd.AddCommand(newSecretCreateCmd(), newSecretCreateTLSCmd(), newSecretCreateRegistryCmd(), newSecretLsCmd(), newSecretRmCmd())
 	return cmd
 }
 
@@ -100,6 +100,37 @@ func newSecretCreateTLSCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "namespace")
 	cmd.Flags().StringVar(&certFile, "cert", "", "path to the certificate (PEM)")
 	cmd.Flags().StringVar(&keyFile, "key", "", "path to the private key (PEM)")
+	return cmd
+}
+
+func newSecretCreateRegistryCmd() *cobra.Command {
+	var kubeconfig, namespace, server, username, password, email string
+	cmd := &cobra.Command{
+		Use:   "create-registry <name> --server <host> --username <user> --password <pass>",
+		Short: "Create/update a private-registry pull secret (docker login)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if server == "" || username == "" || password == "" {
+				return fmt.Errorf("--server, --username and --password are required")
+			}
+			a, err := applierFor(kubeconfig)
+			if err != nil {
+				return err
+			}
+			if err := a.ApplyDockerRegistrySecret(cmd.Context(), namespace, args[0], server, username, password, email); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"registry secret %q created — use it with `x-orcinus-image-pull-secret: %s`\n", args[0], args[0])
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "namespace")
+	cmd.Flags().StringVar(&server, "server", "", "registry host (e.g. registry.example.com, ghcr.io, docker.io)")
+	cmd.Flags().StringVarP(&username, "username", "u", "", "registry username")
+	cmd.Flags().StringVarP(&password, "password", "p", "", "registry password or token")
+	cmd.Flags().StringVar(&email, "email", "", "registry email (optional)")
 	return cmd
 }
 
