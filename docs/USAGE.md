@@ -640,7 +640,15 @@ history.
 | `healthcheck` | `livenessProbe` | exec/http from the compose healthcheck |
 | `restart` | `restartPolicy` / controller-managed | |
 | `depends_on` | best-effort apply ordering | no complex readiness guarantee |
-| `networks` | (ignored in v1) | flat Kubernetes networking |
+| `networks` | (ignored) | flat Kubernetes networking |
+
+**Known limitations.** These compose features have no direct Kubernetes
+equivalent and are intentionally **not** mapped: `networks` (Kubernetes uses flat
+cluster networking — reach a service by its name), `depends_on` conditions /
+`links` (apply ordering is best-effort, no startup gating), `build:` (bring a
+pre-built image; orcinus does not build), and Swarm-only `deploy` keys beyond
+`replicas`/`resources`/`update_config`. Add anything unmapped as a raw Kubernetes
+manifest in the same file (it's applied as-is).
 
 ---
 

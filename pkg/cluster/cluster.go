@@ -58,6 +58,7 @@ type JoinOptions struct {
 	ServerURL string
 	Token     string
 	Role      string // "agent" (worker, default) or "server" (control-plane/master)
+	Runtime   string // "docker" (default) or "standalone" (native, built-in runtime)
 }
 
 // Init provisions a single-node cluster and writes kubeconfig + state.
@@ -218,17 +219,31 @@ func Join(o JoinOptions) error {
 		if o.Image == "" {
 			o.Image = st.Image
 		}
+		if o.Runtime == "" {
+			o.Runtime = st.Runtime
+		}
+	}
+	if o.Runtime == "" {
+		o.Runtime = "docker"
 	}
 	if o.ServerURL == "" || o.Token == "" {
 		return fmt.Errorf("no --server/--token given and no saved cluster state")
-	}
-	if o.Image == "" {
-		o.Image = DefaultImage
 	}
 	if o.Name == "" {
 		o.Name = clusterName + "-" + o.Role
 	}
 
+	// Native (no container runtime) join.
+	if o.Runtime == "standalone" {
+		return joinStandalone(o)
+	}
+	if o.Runtime != "docker" {
+		return fmt.Errorf("unknown --runtime %q (want: docker|standalone)", o.Runtime)
+	}
+
+	if o.Image == "" {
+		o.Image = DefaultImage
+	}
 	base := []string{
 		"run", "-d", "--privileged",
 		"--name", o.Name,

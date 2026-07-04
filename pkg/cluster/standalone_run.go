@@ -124,6 +124,68 @@ func initStandalone(o InitOptions) (*InitResult, error) {
 	return res, nil
 }
 
+// joinStandalone joins this host to an existing cluster natively (no container
+// runtime): it runs `k3s agent` (worker) or `k3s server --server` (extra master)
+// as a managed background process, and records local state so `cluster down`
+// stops it. One standalone node per host.
+func joinStandalone(o JoinOptions) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("--runtime standalone must run as root (the native runtime manages cgroups/iptables/mounts)")
+	}
+	bin, err := runtime.ExtractPath()
+	if err != nil {
+		return fmt.Errorf("extract standalone runtime: %w", err)
+	}
+	if standaloneRunning(o.Name) {
+		return fmt.Errorf("a standalone node %q is already running here; run `orcinus cluster down` first", o.Name)
+	}
+	dir := standaloneDir(o.Name)
+	dataDir := filepath.Join(dir, "data")
+	logPath := filepath.Join(dir, "k3s.log")
+	pidPath := filepath.Join(dir, "pid")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return err
+	}
+
+	role := "agent"
+	if o.Role == "server" {
+		role = "server" // extra control-plane node (needs an HA datastore cluster)
+	}
+	args := []string{role, "--server", o.ServerURL, "--token", o.Token,
+		"--data-dir", dataDir, "--node-name", o.Name}
+
+	logf, err := os.Create(logPath)
+	if err != nil {
+		return err
+	}
+	defer logf.Close()
+	cmd := exec.Command(bin, args...)
+	cmd.Stdout, cmd.Stderr = logf, logf
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start standalone %s: %w", role, err)
+	}
+	pid := cmd.Process.Pid
+	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d\n", pid)), 0o644)
+	_ = cmd.Process.Release()
+
+	// A joining node has no local API to poll; confirm the process stays up.
+	for i := 0; i < 10; i++ {
+		if !processAlive(pid) {
+			return fmt.Errorf("standalone %s exited during join; see %s", role, logPath)
+		}
+		time.Sleep(time.Second)
+	}
+
+	return saveState(&InitResult{
+		Name:      o.Name,
+		Image:     "standalone:" + runtimeTag(bin),
+		ServerURL: o.ServerURL,
+		Token:     o.Token,
+		Runtime:   "standalone",
+	})
+}
+
 func downStandalone(name string) (int, error) {
 	dir := standaloneDir(name)
 	removed := 0
@@ -145,6 +207,9 @@ func downStandalone(name string) (int, error) {
 	// before removal (processes must be gone first so the mounts are idle).
 	unmountUnder(dir)
 	unmountUnder("/run/k3s")
+	// Remove the CNI interfaces and kube/flannel iptables rules the native
+	// runtime created (leaving other rules, e.g. Docker, intact).
+	cleanupHostNetwork()
 	_ = os.RemoveAll(dir)
 	_ = os.Remove(filepath.Dir(dir)) // remove the parent runtime/ dir if now empty
 	_ = os.Remove(KubeconfigPath())
@@ -250,6 +315,19 @@ func killProcessesReferencing(dir string) {
 	if killed {
 		time.Sleep(time.Second) // let mounts release before we unmount
 	}
+}
+
+// cleanupHostNetwork removes the CNI interfaces and kube/flannel/CNI iptables
+// rules the native runtime created, preserving all other rules (e.g. Docker).
+// Best-effort — mirrors what k3s-killall.sh does. On a real standalone host
+// (no other container runtime) this leaves the host as it found it.
+func cleanupHostNetwork() {
+	for _, ifn := range []string{"cni0", "flannel.1", "flannel-v6.1", "kube-ipvs0", "kube-dummy-if"} {
+		_ = exec.Command("ip", "link", "delete", ifn).Run()
+	}
+	// Drop only kube/flannel/CNI iptables rules; everything else is preserved.
+	_ = exec.Command("sh", "-c",
+		"iptables-save 2>/dev/null | grep -vE 'KUBE-|CNI-|FLANNEL|flannel|cali-' | iptables-restore 2>/dev/null").Run()
 }
 
 // unmountUnder lazily unmounts every mountpoint nested under dir (the native

@@ -31,5 +31,6 @@ func newJoinCmd() *cobra.Command {
 	f.StringVar(&o.Role, "role", "agent", "node role: agent (worker) or server (control-plane/master)")
 	f.StringVar(&o.Name, "name", "", "node/container name (default: <cluster>-<role>)")
 	f.StringVar(&o.Image, "image", "", "cluster runtime image (default: from saved state)")
+	f.StringVar(&o.Runtime, "runtime", "", "runtime provider: docker (default) or standalone (native) — default: from saved state")
 	return cmd
 }

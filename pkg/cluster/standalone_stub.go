@@ -18,6 +18,11 @@ func initStandalone(o InitOptions) (*InitResult, error) {
 
 func downStandalone(name string) (int, error) { return 0, runtime.ErrNotStandalone }
 
+func joinStandalone(o JoinOptions) error {
+	return fmt.Errorf("--runtime standalone is not available: %w\n"+
+		"use --runtime docker (the default), or build the standalone binary with `make orcinus-standalone`", runtime.ErrNotStandalone)
+}
+
 func standaloneRunning(name string) bool { return false }
 
 func standaloneNodes(kubeconfig string) string { return "" }

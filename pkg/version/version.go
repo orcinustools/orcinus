@@ -7,6 +7,6 @@ var (
 	Version = "dev"
 	// GitCommit is the git commit the binary was built from.
 	GitCommit = "unknown"
-	// KomposeRef identifies the forked kompose revision embedded in this build.
-	KomposeRef = "third_party/kompose"
+	// KomposeRef identifies the forked kompose base version embedded in this build.
+	KomposeRef = "v1.38.0 (orcinus fork)"
 )

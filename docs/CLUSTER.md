@@ -114,6 +114,22 @@ sudo orcinus-standalone kubectl get nodes
 sudo orcinus-standalone cluster down
 ```
 
+**Multi-node (native).** Install `orcinus-standalone` on each **additional host**
+and join it natively — no container runtime anywhere:
+
+```bash
+# worker (agent)
+sudo orcinus-standalone cluster join --runtime standalone \
+  --server https://<master-ip>:6443 --token <token>
+
+# extra control-plane (needs an HA-datastore cluster: init with --cluster-init)
+sudo orcinus-standalone cluster join --runtime standalone --role server \
+  --server https://<master-ip>:6443 --token <token>
+```
+
+One standalone node per host (`orcinus cluster down` stops the local node). Run
+each `join` on its **own** host — two native nodes can't share one host.
+
 **Notes & limits.**
 - Needs **root** — the native runtime manages cgroups, iptables and mounts.
 - Needs a **real host** with cgroup delegation (systemd-style). Running it
@@ -121,8 +137,10 @@ sudo orcinus-standalone cluster down
   `docker` provider there instead.
 - State lives under `~/.orcinus/runtime/<name>/` (of the user that ran it — i.e.
   `/root/.orcinus` under `sudo`), separate from any `docker`-provider cluster.
-- `orcinus cluster down` reaps the server plus its containerd shims and unmounts
-  everything it created, leaving no residue.
+- `orcinus cluster down` reaps the server plus its containerd shims, unmounts
+  everything it created, and removes the CNI interfaces (`cni0`, `flannel.1`) and
+  kube/flannel iptables rules — leaving the host as it found it (other rules, e.g.
+  Docker's, are preserved).
 
 ---
 
