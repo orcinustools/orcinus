@@ -27,6 +27,18 @@ orcinus secret create-registry regcred \
 | `--password`, `-p` | Registry password or access token |
 | `--email` | Optional email |
 | `--namespace`, `-n` | Namespace to create the secret in (default `default`) |
+| `--insecure` | Skip TLS verification for the login test (self-signed registries) |
+| `--skip-login-check` | Create the secret without testing the login first |
+
+**It tests the login first.** Before storing anything, orcinus authenticates to
+the registry (Docker Registry v2 handshake — basic or bearer token). If the
+credentials are wrong you get an error and **no secret is created**:
+
+```
+$ orcinus secret create-registry regcred --server registry.example.com -u me -p wrong
+testing login to registry.example.com ...
+error: login to https://registry.example.com failed: invalid credentials
+```
 
 It writes the same `.dockerconfigjson` format `docker login` produces. Re-running
 updates it (idempotent). Create it in the **same namespace** as the workloads that

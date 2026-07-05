@@ -393,6 +393,8 @@ components:
         username: { type: string }
         password: { type: string }
         email: { type: string }
+        insecure: { type: boolean, description: skip TLS verification during the login test }
+        skipLoginCheck: { type: boolean, description: create without testing the login (400 if the login test fails) }
     PluginInfo:
       type: object
       properties:

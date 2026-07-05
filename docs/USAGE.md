@@ -522,7 +522,7 @@ orcinus secret rm <name>
 |---|---|
 | `create` | Opaque secret from `--from-literal KEY=VALUE` (repeatable) |
 | `create-tls` | TLS secret from a PEM cert + key — reference with `x-orcinus-tls-secret` |
-| `create-registry` | Private-registry pull secret (docker login) — reference with `x-orcinus-image-pull-secret` (see [`REGISTRY.md`](./REGISTRY.md)) |
+| `create-registry` | Private-registry pull secret — **tests the login first**, then reference with `x-orcinus-image-pull-secret` (`--insecure`, `--skip-login-check`; see [`REGISTRY.md`](./REGISTRY.md)) |
 | `ls` | List secrets (name, type, key count, whether orcinus-managed) |
 | `rm` | Delete a secret |
 

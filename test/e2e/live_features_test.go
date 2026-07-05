@@ -360,7 +360,8 @@ func TestLiveRegistry(t *testing.T) {
 	requireLive(t)
 	orcinus, kubectl := liveCluster(t, "orcinus-reg", 16486)
 
-	if out, err := orcinus("secret", "create-registry", "regcred",
+	// --skip-login-check: this uses a placeholder registry (no real login to test).
+	if out, err := orcinus("secret", "create-registry", "regcred", "--skip-login-check",
 		"--server", "registry.example.com", "-u", "user", "-p", "s3cret"); err != nil {
 		t.Fatalf("create-registry: %v\n%s", err, out)
 	}

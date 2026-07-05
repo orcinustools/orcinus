@@ -105,13 +105,23 @@ func newSecretCreateTLSCmd() *cobra.Command {
 
 func newSecretCreateRegistryCmd() *cobra.Command {
 	var kubeconfig, namespace, server, username, password, email string
+	var insecure, skipLoginCheck bool
 	cmd := &cobra.Command{
 		Use:   "create-registry <name> --server <host> --username <user> --password <pass>",
-		Short: "Create/update a private-registry pull secret (docker login)",
+		Short: "Create/update a private-registry pull secret (verifies login first)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if server == "" || username == "" || password == "" {
 				return fmt.Errorf("--server, --username and --password are required")
+			}
+			out := cmd.OutOrStdout()
+			// Test the credentials against the registry BEFORE storing the secret.
+			if !skipLoginCheck {
+				fmt.Fprintf(out, "testing login to %s ...\n", server)
+				if err := deploy.VerifyRegistryLogin(cmd.Context(), server, username, password, insecure); err != nil {
+					return err
+				}
+				fmt.Fprintln(out, "login OK")
 			}
 			a, err := applierFor(kubeconfig)
 			if err != nil {
@@ -120,7 +130,7 @@ func newSecretCreateRegistryCmd() *cobra.Command {
 			if err := a.ApplyDockerRegistrySecret(cmd.Context(), namespace, args[0], server, username, password, email); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(),
+			fmt.Fprintf(out,
 				"registry secret %q created — use it with `x-orcinus-image-pull-secret: %s`\n", args[0], args[0])
 			return nil
 		},
@@ -131,6 +141,8 @@ func newSecretCreateRegistryCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&username, "username", "u", "", "registry username")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "registry password or token")
 	cmd.Flags().StringVar(&email, "email", "", "registry email (optional)")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS verification when testing login (self-signed registries)")
+	cmd.Flags().BoolVar(&skipLoginCheck, "skip-login-check", false, "create the secret without testing the login first")
 	return cmd
 }
 

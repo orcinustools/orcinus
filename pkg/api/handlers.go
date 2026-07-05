@@ -256,12 +256,14 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 
 // RegistrySecretRequest is the body for creating a private-registry pull secret.
 type RegistrySecretRequest struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Server    string `json:"server"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-	Email     string `json:"email"`
+	Name           string `json:"name"`
+	Namespace      string `json:"namespace"`
+	Server         string `json:"server"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	Email          string `json:"email"`
+	Insecure       bool   `json:"insecure"`       // skip TLS verify during the login test
+	SkipLoginCheck bool   `json:"skipLoginCheck"` // create without testing login
 }
 
 func (s *Server) handleCreateRegistrySecret(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +275,13 @@ func (s *Server) handleCreateRegistrySecret(w http.ResponseWriter, r *http.Reque
 	if body.Name == "" || body.Server == "" || body.Username == "" || body.Password == "" {
 		writeErr(w, http.StatusBadRequest, "name, server, username and password are required")
 		return
+	}
+	// Verify the credentials before storing the secret (unless asked to skip).
+	if !body.SkipLoginCheck {
+		if err := deploy.VerifyRegistryLogin(r.Context(), body.Server, body.Username, body.Password, body.Insecure); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	ns := body.Namespace
 	if ns == "" {
