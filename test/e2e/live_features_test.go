@@ -385,6 +385,54 @@ services:
 	}
 }
 
+// TestLiveBindMount: a host-path (bind) volume is mounted into the pod (node-local,
+// like a Compose/Swarm bind mount) — the pod reads a file seeded on the node.
+func TestLiveBindMount(t *testing.T) {
+	requireLive(t)
+	docker := strings.Fields(envOr("ORCINUS_E2E_DOCKER", "docker"))
+	const name = "orcinus-bm"
+	orcinus, kubectl := liveCluster(t, name, 16487)
+
+	// Seed a file on the node (the cluster container) that the bind mount exposes.
+	if out, err := runcOut(append(docker, "exec", name, "sh", "-c",
+		"mkdir -p /srv/bm && printf hello-bind > /srv/bm/msg.txt")...); err != nil {
+		t.Fatalf("seed host file: %v\n%s", err, out)
+	}
+
+	f := writeCompose(t, `
+services:
+  reader:
+    image: busybox:1.36
+    command: ["sh", "-c", "sleep 3600"]
+    volumes:
+      - /srv/bm:/data:ro
+`)
+	if out, err := orcinus("deploy", "-f", f, "--project", "bm", "--wait"); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out)
+	}
+
+	// The generated Deployment must use a hostPath volume, not a PVC.
+	if got, _ := kubectl("get", "deploy", "reader", "-o",
+		"jsonpath={.spec.template.spec.volumes[0].hostPath.path}"); got != "/srv/bm" {
+		t.Errorf("hostPath = %q, want /srv/bm", got)
+	}
+	// And the pod actually reads the file from the host path.
+	var pod string
+	waitFor(t, 60*time.Second, "reader pod running", func() bool {
+		out, _ := kubectl("get", "pods", "-l", "io.kompose.service=reader", "--no-headers")
+		fields := strings.Fields(out)
+		if len(fields) >= 3 && fields[2] == "Running" {
+			pod = fields[0]
+			return true
+		}
+		return false
+	})
+	out, err := kubectl("exec", pod, "--", "cat", "/data/msg.txt")
+	if err != nil || !strings.Contains(out, "hello-bind") {
+		t.Fatalf("bind-mounted file not readable: %v\n%s", err, out)
+	}
+}
+
 // TestLiveCustomCert: a bring-your-own TLS cert (secret create-tls) served via
 // Ingress with x-orcinus-tls-secret — no external domain needed (uses --resolve).
 func TestLiveCustomCert(t *testing.T) {

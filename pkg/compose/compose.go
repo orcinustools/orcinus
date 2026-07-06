@@ -75,6 +75,7 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	strategyCfgs := map[string]strategyCfg{}
 	rolloutCfgs := map[string]string{}
 	pullSecrets := map[string][]string{}
+	bindMounts := map[string][]bindMount{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
@@ -102,6 +103,9 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, names := range pp.imagePullSecrets {
 			pullSecrets[svc] = names
+		}
+		for svc, mounts := range pp.bindMounts {
+			bindMounts[svc] = mounts
 		}
 		tmp := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s", i, filepath.Base(f)))
 		if err := os.WriteFile(tmp, pp.content, 0o600); err != nil {
@@ -154,6 +158,10 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	// 6b. Attach private-registry imagePullSecrets to workloads (before Rollout
 	//     conversion so Rollouts inherit them from the Deployment template).
 	applyImagePullSecrets(objects, pullSecrets)
+
+	// 6c. Attach host-path (bind-mount) volumes — node-local, like a Compose/Swarm
+	//     bind mount (before Rollout conversion so Rollouts inherit them).
+	applyBindMounts(objects, bindMounts)
 
 	// 7. Convert Deployments to Argo Rollouts for x-orcinus-rollout services.
 	objects, rolloutSvcs, err := convertRollouts(objects, rolloutCfgs)
@@ -422,7 +430,7 @@ func applyIngressConfig(objects []runtime.Object, cfgs map[string]ingressCfg, op
 		case cfg.TLSSecret != "":
 			// Custom/BYO cert: use an existing TLS Secret, no cert-manager.
 			ing.Spec.TLS = []networkingv1.IngressTLS{{
-				Hosts:      []string{ingressHost(ing)},
+				Hosts:      allIngressHosts(ing),
 				SecretName: cfg.TLSSecret,
 			}}
 		case cfg.TLS != "":
@@ -431,7 +439,7 @@ func applyIngressConfig(objects []runtime.Object, cfgs map[string]ingressCfg, op
 			}
 			ing.Annotations["cert-manager.io/cluster-issuer"] = cfg.TLS
 			ing.Spec.TLS = []networkingv1.IngressTLS{{
-				Hosts:      []string{ingressHost(ing)},
+				Hosts:      allIngressHosts(ing),
 				SecretName: ing.Name + "-tls",
 			}}
 		}
@@ -532,13 +540,19 @@ func ownershipLabels(project string) map[string]string {
 	return l
 }
 
-func ingressHost(ing *networkingv1.Ingress) string {
+// allIngressHosts returns every distinct host across the Ingress rules, so a
+// multi-domain Ingress (x-orcinus-host: "a,b,c") gets a TLS cert covering all of
+// them, not just the first.
+func allIngressHosts(ing *networkingv1.Ingress) []string {
+	var hosts []string
+	seen := map[string]bool{}
 	for _, r := range ing.Spec.Rules {
-		if r.Host != "" {
-			return r.Host
+		if r.Host != "" && !seen[r.Host] {
+			seen[r.Host] = true
+			hosts = append(hosts, r.Host)
 		}
 	}
-	return ""
+	return hosts
 }
 
 // decorate stamps ownership labels and namespace on every object.
@@ -675,6 +689,34 @@ func applyImagePullSecrets(objects []runtime.Object, cfgs map[string][]string) {
 		for _, n := range names {
 			if !have[n] {
 				ps.ImagePullSecrets = append(ps.ImagePullSecrets, corev1.LocalObjectReference{Name: n})
+			}
+		}
+	}
+}
+
+// applyBindMounts adds hostPath volumes + volumeMounts for each service's
+// bind mounts. hostPath is node-local (like a Compose/Swarm bind mount): the
+// path lives on whichever node the pod runs on.
+func applyBindMounts(objects []runtime.Object, cfgs map[string][]bindMount) {
+	if len(cfgs) == 0 {
+		return
+	}
+	hostPathType := corev1.HostPathDirectoryOrCreate
+	for _, obj := range objects {
+		ps, name := podSpecOf(obj)
+		if ps == nil {
+			continue
+		}
+		for _, bm := range cfgs[name] {
+			ps.Volumes = append(ps.Volumes, corev1.Volume{
+				Name: bm.Name,
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{Path: bm.Source, Type: &hostPathType},
+				},
+			})
+			for ci := range ps.Containers {
+				ps.Containers[ci].VolumeMounts = append(ps.Containers[ci].VolumeMounts,
+					corev1.VolumeMount{Name: bm.Name, MountPath: bm.Target, ReadOnly: bm.ReadOnly})
 			}
 		}
 	}

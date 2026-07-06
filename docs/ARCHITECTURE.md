@@ -157,6 +157,7 @@ reference.
 | `service` | `Deployment` (default) | override via `x-orcinus-controller: statefulset/daemonset` |
 | `ports` | `Service` (ClusterIP) | publish via `x-orcinus-expose: ingress/nodeport/loadbalancer` |
 | `volumes` (named) | `PersistentVolumeClaim` | size via `x-orcinus-volume-size` |
+| `volumes` (bind mount) | `hostPath` (node-local) | host folder → container, like a Compose/Swarm bind mount |
 | `environment` / `env_file` | `env` + `ConfigMap`/`Secret` | secrets marked with `x-orcinus-secret` |
 | `deploy.replicas` | `.spec.replicas` | |
 | `deploy.update_config` | `.spec.strategy` + minReadySeconds/progressDeadline | order/parallelism/delay/monitor mapped |

@@ -2,6 +2,9 @@ package compose
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/yaml"
@@ -68,6 +71,16 @@ func (c ingressCfg) isSet() bool {
 		c.StripFromPath || len(c.StripPrefixes) > 0 || len(c.Middlewares) > 0
 }
 
+// bindMount is a host-path (bind) volume extracted from a service's `volumes:`.
+// It maps to a Kubernetes hostPath volume (node-local, like a Compose/Swarm bind
+// mount), instead of the PVC that named volumes become.
+type bindMount struct {
+	Name     string
+	Source   string // absolute host path on the node
+	Target   string // mount path in the container
+	ReadOnly bool
+}
+
 // autoscaleCfg holds HPA hints for a service.
 type autoscaleCfg struct {
 	Min, Max, CPU, Memory int
@@ -100,6 +113,8 @@ type preprocessed struct {
 	rollout map[string]string
 	// imagePullSecrets maps a service name to imagePullSecret names (private registry).
 	imagePullSecrets map[string][]string
+	// bindMounts maps a service name to host-path (bind) volumes → hostPath.
+	bindMounts map[string][]bindMount
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
@@ -117,6 +132,7 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		strategy:         map[string]strategyCfg{},
 		rollout:          map[string]string{},
 		imagePullSecrets: map[string][]string{},
+		bindMounts:       map[string][]bindMount{},
 	}
 
 	servicesAny, ok := doc["services"].(map[string]interface{})
@@ -236,6 +252,18 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 			out.imagePullSecrets[name] = secrets
 		}
 
+		// Bind mounts (host path → container) become hostPath volumes; named
+		// volumes are left for the fork to turn into PVCs. Strip the bind mounts
+		// from the compose doc so the fork doesn't PVC them.
+		if mounts, kept := extractBindMounts(svc["volumes"]); len(mounts) > 0 {
+			out.bindMounts[name] = mounts
+			if len(kept) == 0 {
+				delete(svc, "volumes")
+			} else {
+				svc["volumes"] = kept
+			}
+		}
+
 		// Progressive delivery via Argo Rollout.
 		if v, ok := stringExt(svc[extRollout]); ok {
 			if v != "canary" && v != "bluegreen" {
@@ -255,6 +283,85 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 	}
 	out.content = content
 	return out, nil
+}
+
+// extractBindMounts separates host-path (bind) volumes from a service's
+// `volumes:` list. It returns the bind mounts (to become hostPath volumes) and
+// the remaining entries (named/anonymous volumes, left for the fork → PVC).
+func extractBindMounts(v interface{}) (mounts []bindMount, kept []interface{}) {
+	list, ok := v.([]interface{})
+	if !ok {
+		return nil, nil
+	}
+	idx := 0
+	for _, item := range list {
+		switch e := item.(type) {
+		case string:
+			if src, tgt, ro, isBind := parseShortBind(e); isBind {
+				mounts = append(mounts, bindMount{
+					Name: fmt.Sprintf("bind-%d", idx), Source: bindMountHostPath(src), Target: tgt, ReadOnly: ro,
+				})
+				idx++
+				continue
+			}
+		case map[string]interface{}:
+			if t, _ := e["type"].(string); t == "bind" {
+				src, _ := e["source"].(string)
+				tgt, _ := e["target"].(string)
+				ro, _ := e["read_only"].(bool)
+				if src != "" && tgt != "" {
+					mounts = append(mounts, bindMount{
+						Name: fmt.Sprintf("bind-%d", idx), Source: bindMountHostPath(src), Target: tgt, ReadOnly: ro,
+					})
+					idx++
+					continue
+				}
+			}
+		}
+		kept = append(kept, item)
+	}
+	return mounts, kept
+}
+
+// parseShortBind parses `SOURCE:TARGET[:MODE]` and reports whether SOURCE is a
+// host path (a bind mount) rather than a named volume.
+func parseShortBind(s string) (src, tgt string, readOnly, isBind bool) {
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 {
+		return "", "", false, false // anonymous volume (target only)
+	}
+	src = parts[0]
+	if !isBindSource(src) {
+		return "", "", false, false // named volume
+	}
+	tgt = parts[1]
+	if len(parts) >= 3 && strings.Contains(parts[2], "ro") {
+		readOnly = true
+	}
+	return src, tgt, readOnly, true
+}
+
+// isBindSource reports whether a volume source is a host path (absolute,
+// relative, or ~) as opposed to a named volume.
+func isBindSource(s string) bool {
+	return strings.HasPrefix(s, "/") || strings.HasPrefix(s, ".") || strings.HasPrefix(s, "~")
+}
+
+// bindMountHostPath resolves a bind-mount source to an absolute host path
+// (Kubernetes hostPath requires an absolute path).
+func bindMountHostPath(src string) string {
+	if strings.HasPrefix(src, "~") {
+		if home, err := os.UserHomeDir(); err == nil {
+			src = home + strings.TrimPrefix(src, "~")
+		}
+	}
+	if filepath.IsAbs(src) {
+		return filepath.Clean(src)
+	}
+	if abs, err := filepath.Abs(src); err == nil {
+		return abs
+	}
+	return src
 }
 
 // normalizeLabels accepts compose labels in either map or `["k=v"]` list form and

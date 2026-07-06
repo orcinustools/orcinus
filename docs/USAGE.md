@@ -38,6 +38,7 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.16 `version`](#516-orcinus-version)
   - [5.17 `completion`](#517-orcinus-completion)
 - [6. Datastore](#6-datastore)
+- [7. Volumes & storage](#7-volumes--storage)
 - [Appendix A — Compose → Kubernetes mapping](#appendix-a--compose--kubernetes-mapping)
 - [Appendix B — `x-orcinus-*` extension reference](#appendix-b--x-orcinus--extension-reference)
 - [Appendix C — Environment variables & files](#appendix-c--environment-variables--files)
@@ -626,6 +627,55 @@ history.
 
 ---
 
+## 7. Volumes & storage
+
+Compose `volumes:` map to Kubernetes storage **by type** — orcinus picks the right
+kind automatically:
+
+| Compose entry | Becomes | Use it for |
+|---|---|---|
+| named volume — `data:/var/lib/data` | **PersistentVolumeClaim** | persistent app data managed by the cluster |
+| bind mount — `./conf:/etc/app`, `/srv/x:/data` | **hostPath** (node-local) | mounting a folder from the node, like a Compose/Swarm bind mount |
+
+### Named volumes (PVC)
+
+```yaml
+services:
+  db:
+    image: postgres:16
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    x-orcinus-volume-size: 5Gi        # PVC size (else --pvc-size, default 1Gi)
+volumes:
+  pgdata:                             # declare named volumes, like compose
+```
+
+- Bound by the cluster's **default StorageClass** — `local-path` works out of the
+  box. For replicated / networked / object storage, install the storage plugin
+  (see [`PLUGINS.md`](./PLUGINS.md) and [`HA-STORAGE.md`](./HA-STORAGE.md)).
+- Size per service with `x-orcinus-volume-size`, or globally with `--pvc-size`.
+
+### Bind mounts (hostPath)
+
+```yaml
+services:
+  app:
+    image: nginx:1.27
+    volumes:
+      - /srv/app/config:/etc/app:ro   # absolute host path, read-only
+      - ./data:/data                  # relative → resolved to an absolute path
+```
+
+- Mounts a **host folder** into the container — **node-local**: the path lives on
+  whichever node the pod runs on, exactly like a Compose/Swarm bind mount.
+- Relative paths (`./data`) resolve to absolute; a `:ro` suffix → read-only; the
+  folder is auto-created if missing.
+- **Single-node / `--runtime standalone`:** it's simply your local folder.
+  **Multi-node:** the path must exist on the scheduled node — for data shared
+  across nodes use a named volume (PVC) on a networked StorageClass instead.
+
+---
+
 ## Appendix A — Compose → Kubernetes mapping
 
 | Compose element | Kubernetes object | Notes |
@@ -633,6 +683,7 @@ history.
 | `service` | `Deployment` (default) | override via `x-orcinus-controller` |
 | `ports` | `Service` (ClusterIP) | multiple ports supported; `x-orcinus-expose` changes type |
 | named `volumes` | `PersistentVolumeClaim` | size via `x-orcinus-volume-size` |
+| bind mount (`./x:/y`, `/abs:/y`) | `hostPath` volume | node-local, like a Compose/Swarm bind mount (relative paths resolve to absolute); host folder mounted into the container |
 | `environment` / `env_file` | container `env` | secrets via `x-orcinus-secret` |
 | `deploy.replicas` | `.spec.replicas` | |
 | `deploy.resources` | `resources.limits/requests` | cpu + memory |
@@ -641,6 +692,9 @@ history.
 | `restart` | `restartPolicy` / controller-managed | |
 | `depends_on` | best-effort apply ordering | no complex readiness guarantee |
 | `networks` | (ignored) | flat Kubernetes networking |
+
+Volumes are covered in detail in [§7](#7-volumes--storage) (named → PVC, bind
+mount → node-local hostPath).
 
 **Known limitations.** These compose features have no direct Kubernetes
 equivalent and are intentionally **not** mapped: `networks` (Kubernetes uses flat
@@ -661,7 +715,7 @@ keys; orcinus parses them during conversion.
 |---|---|---|
 | `x-orcinus-controller` | `deployment` \| `statefulset` \| `daemonset` | Controller kind (default: deployment) |
 | `x-orcinus-expose` | `clusterip` \| `nodeport` \| `loadbalancer` \| `ingress` | How the service is exposed |
-| `x-orcinus-host` | hostname | Ingress host (with `x-orcinus-expose: ingress`) |
+| `x-orcinus-host` | hostname, or comma-separated list | Ingress host(s) (with `x-orcinus-expose: ingress`). Multiple domains → one rule each + a TLS cert covering all (see [`INGRESS.md`](./INGRESS.md#1a-multiple-domains-for-one-service)) |
 | `x-orcinus-volume-size` | e.g. `5Gi` | PVC request size for the service's volumes |
 | `x-orcinus-secret` | list of env var names | Move those env vars into a `Secret` (referenced via `secretKeyRef`) |
 | `x-orcinus-tls` | ClusterIssuer name (e.g. `letsencrypt`) | Adds a TLS block + `cert-manager.io/cluster-issuer` annotation (needs the `cert-manager` plugin) |

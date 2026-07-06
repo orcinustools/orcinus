@@ -48,13 +48,33 @@ services:
 | Key | Purpose |
 |---|---|
 | `x-orcinus-expose: ingress` | Generate an Ingress for the service |
-| `x-orcinus-host` | Host to route (e.g. `app.example.com`) |
+| `x-orcinus-host` | Host(s) to route — one, or several comma-separated (see [§1a](#1a-multiple-domains-for-one-service)) |
 | `x-orcinus-path` | Path prefix (default `/`) |
 | `x-orcinus-port` | Backend service port |
 | `x-orcinus-ingress-class` | Ingress class (`traefik` by default in-cluster) |
 | `x-orcinus-tls` / `x-orcinus-tls-secret` | HTTPS via cert-manager / an existing cert |
 | **`x-orcinus-strip-prefix`** | Strip the path prefix (Traefik StripPrefix) — [§2](#2-path-routing--prefix-stripping) |
 | **`x-orcinus-middleware`** | Attach Traefik middleware(s) by name — [§3](#3-attaching-traefik-middlewares) |
+
+### 1a. Multiple domains for one service
+
+Point several domains at the same service by listing them **comma-separated** in
+`x-orcinus-host`:
+
+```yaml
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: "shop.com,www.shop.com,api.shop.com"
+    x-orcinus-tls: letsencrypt
+```
+
+This generates one Ingress with a routing rule per host, and — when
+`x-orcinus-tls` / `x-orcinus-tls-secret` is set — a TLS block that covers **all**
+the hosts (cert-manager requests a certificate for every domain). Path, port,
+strip-prefix and middlewares apply to all of them.
 
 ---
 

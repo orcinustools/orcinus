@@ -3,6 +3,7 @@ package compose
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -484,6 +485,93 @@ services:
 	if strip.GetLabels()[LabelManagedBy] != ManagedByValue {
 		t.Errorf("middleware missing ownership label")
 	}
+}
+
+// TestConvertBindMounts: host-path volumes → hostPath, named volumes → PVC.
+func TestConvertBindMounts(t *testing.T) {
+	const f = `
+services:
+  app:
+    image: nginx:1.27
+    volumes:
+      - /srv/data:/data
+      - ./conf:/etc/app:ro
+      - cache:/var/cache
+volumes:
+  cache:
+`
+	var dep *appsv1.Deployment
+	pvcs := 0
+	for _, o := range convertString(t, f) {
+		switch v := o.(type) {
+		case *appsv1.Deployment:
+			dep = v
+		case *corev1.PersistentVolumeClaim:
+			pvcs++
+		}
+	}
+	if dep == nil {
+		t.Fatal("no Deployment")
+	}
+	if pvcs != 1 {
+		t.Errorf("PVC count = %d, want 1 (only the named volume)", pvcs)
+	}
+	hostPaths := map[string]string{} // path -> present
+	for _, vol := range dep.Spec.Template.Spec.Volumes {
+		if vol.HostPath != nil {
+			hostPaths[vol.HostPath.Path] = vol.Name
+		}
+	}
+	if _, ok := hostPaths["/srv/data"]; !ok {
+		t.Errorf("missing hostPath /srv/data; got %v", hostPaths)
+	}
+	foundConf := false
+	for p := range hostPaths {
+		if strings.HasSuffix(p, "/conf") { // relative ./conf resolved to absolute
+			foundConf = true
+		}
+	}
+	if !foundConf {
+		t.Errorf("missing resolved hostPath for ./conf; got %v", hostPaths)
+	}
+	// the read-only mount must carry ReadOnly.
+	ro := false
+	for _, m := range dep.Spec.Template.Spec.Containers[0].VolumeMounts {
+		if m.MountPath == "/etc/app" && m.ReadOnly {
+			ro = true
+		}
+	}
+	if !ro {
+		t.Errorf("/etc/app mount should be readOnly")
+	}
+}
+
+// TestConvertMultiDomainTLS: x-orcinus-host with a comma list → multiple Ingress
+// rules and a TLS block covering every host.
+func TestConvertMultiDomainTLS(t *testing.T) {
+	const f = `
+services:
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+    x-orcinus-expose: ingress
+    x-orcinus-host: "a.example.com,b.example.com"
+    x-orcinus-tls: letsencrypt
+`
+	for _, o := range convertString(t, f) {
+		ing, ok := o.(*networkingv1.Ingress)
+		if !ok {
+			continue
+		}
+		if len(ing.Spec.Rules) != 2 {
+			t.Fatalf("ingress rules = %d, want 2", len(ing.Spec.Rules))
+		}
+		if len(ing.Spec.TLS) == 0 || len(ing.Spec.TLS[0].Hosts) != 2 {
+			t.Fatalf("TLS hosts = %v, want both domains", ing.Spec.TLS)
+		}
+		return
+	}
+	t.Fatal("no Ingress generated")
 }
 
 // TestConvertImagePullSecret: x-orcinus-image-pull-secret → pod imagePullSecrets.
