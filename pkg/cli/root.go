@@ -34,6 +34,8 @@ func NewRootCmd() *cobra.Command {
 		newKubectlCmd(),
 		newRuntimeCmd(),
 		newAPICmd(),
+		newSkillsCmd(),
+		newMCPCmd(),
 		newVersionCmd(),
 	)
 	return root

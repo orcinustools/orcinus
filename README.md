@@ -81,6 +81,52 @@ bin/orcinus logs web -f              # stream a service's logs
 bin/orcinus rm myapp                 # remove a project
 ```
 
+## AI agents
+
+Orcinus is **self-describing** — an agent learns to drive it by running one command:
+
+```bash
+orcinus skills                 # list task recipes
+orcinus skills expose-tls      # one recipe (goal, commands, verify, gotchas)
+orcinus skills --all           # the whole catalog (read once, learn everything)
+orcinus skills --json          # machine-readable
+```
+
+**Install the skill into your agent tool** (writes each tool's native format):
+
+```bash
+orcinus skills init --agent all      # or: claude | codex | opencode | cursor | windsurf | aider
+```
+
+| Tool | File written |
+|---|---|
+| Claude Code | `.claude/skills/orcinus/SKILL.md` |
+| Codex / opencode / generic | `AGENTS.md` |
+| Cursor | `.cursor/rules/orcinus.mdc` |
+| Windsurf | `.windsurfrules` |
+| Aider | `CONVENTIONS.md` |
+
+**Tool-calling agents (Claude Desktop, Codex, Cursor, opencode, …) via MCP.** Orcinus
+ships an MCP server, so any MCP client can use it as live tools + read the skill
+recipes as resources:
+
+```bash
+orcinus mcp --config     # print an MCP client config snippet
+orcinus mcp              # run the server (stdio); read-only by default
+orcinus mcp --allow-write # also expose deploy/scale/rollback/rm
+```
+
+```json
+{
+  "mcpServers": {
+    "orcinus": { "command": "orcinus", "args": ["mcp"] }
+  }
+}
+```
+
+Read-only tools (`convert`, `list_projects`, `list_pods`, `cluster_status`, …) are
+always available; cluster-changing tools require `--allow-write`.
+
 ## `x-orcinus-*` extensions
 
 Add Kubernetes hints directly in your compose file (see `docs/ARCHITECTURE.md` §7):

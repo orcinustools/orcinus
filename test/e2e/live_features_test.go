@@ -447,6 +447,47 @@ services:
 	}
 }
 
+// TestLiveMCP drives the MCP server (orcinus mcp --allow-write) over stdio against
+// a real cluster: initialize, deploy a service, list projects.
+func TestLiveMCP(t *testing.T) {
+	requireLive(t)
+	docker := strings.Fields(envOr("ORCINUS_E2E_DOCKER", "docker"))
+	home := t.TempDir()
+	env := append(os.Environ(), "HOME="+home, "ORCINUS_DOCKER="+strings.Join(docker, " "))
+	const name = "orcinus-mcp"
+	kubeconfig := home + "/.orcinus/kubeconfig"
+
+	orc := func(args ...string) (string, error) {
+		cmd := exec.Command(orcinusBin, args...)
+		cmd.Dir, cmd.Env = repoRoot(), env
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	_, _ = runcOut(append(docker, "rm", "-f", name)...)
+	t.Cleanup(func() { _, _ = orc("cluster", "down"); _, _ = runcOut(append(docker, "rm", "-f", name)...) })
+	if out, err := orc("cluster", "init", "--name", name, "--port", "16491"); err != nil {
+		t.Fatalf("cluster init: %v\n%s", err, out)
+	}
+
+	reqs := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"deploy","arguments":{"source":"services:\n  web:\n    image: nginx:1.27\n    ports: [\"80\"]\n","project":"mcptest","wait":true}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_projects","arguments":{}}}`,
+	}, "\n") + "\n"
+
+	cmd := exec.Command(orcinusBin, "mcp", "--allow-write", "--kubeconfig", kubeconfig)
+	cmd.Env = env
+	cmd.Stdin = strings.NewReader(reqs)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("mcp run: %v\n%s", err, out)
+	}
+	s := string(out)
+	if !strings.Contains(s, "applied") || !strings.Contains(s, "mcptest") {
+		t.Fatalf("MCP deploy/list did not report success:\n%s", s)
+	}
+}
+
 // TestLiveNvidiaPlugin: the nvidia-device-plugin installs cleanly (its DaemonSet
 // is applied). GPU scheduling itself needs real GPU nodes, not tested here.
 func TestLiveNvidiaPlugin(t *testing.T) {
