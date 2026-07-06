@@ -159,6 +159,7 @@ reference.
 | `volumes` (named) | `PersistentVolumeClaim` | size via `x-orcinus-volume-size` |
 | `volumes` (bind mount) | `hostPath` (node-local) | host folder → container, like a Compose/Swarm bind mount |
 | `environment` / `env_file` | `env` + `ConfigMap`/`Secret` | secrets marked with `x-orcinus-secret` |
+| `deploy.mode` | `Deployment` / `DaemonSet` | `global` → DaemonSet (one pod per node); `replicated` (default) → Deployment |
 | `deploy.replicas` | `.spec.replicas` | |
 | `deploy.update_config` | `.spec.strategy` + minReadySeconds/progressDeadline | order/parallelism/delay/monitor mapped |
 | `deploy.placement` | `nodeAffinity` + `topologySpreadConstraints` | Swarm constraints/preferences (node.role/hostname/arch/os/labels) |

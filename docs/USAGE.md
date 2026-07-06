@@ -758,6 +758,7 @@ For a plain node pin without Swarm syntax, use the extension:
 | named `volumes` | `PersistentVolumeClaim` | size via `x-orcinus-volume-size` |
 | bind mount (`./x:/y`, `/abs:/y`) | `hostPath` volume | node-local, like a Compose/Swarm bind mount (relative paths resolve to absolute); host folder mounted into the container |
 | `environment` / `env_file` | container `env` | secrets via `x-orcinus-secret` |
+| `deploy.mode` | `Deployment` (replicated) / `DaemonSet` (global) | `global` → one pod per node (like Swarm); override with `x-orcinus-controller` |
 | `deploy.replicas` | `.spec.replicas` | |
 | `deploy.resources` | `resources.limits/requests` | cpu + memory |
 | `deploy.update_config` | `.spec.strategy` (+ minReadySeconds/progressDeadline) | order/parallelism/delay/monitor |

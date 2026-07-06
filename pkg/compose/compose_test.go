@@ -487,6 +487,27 @@ services:
 	}
 }
 
+// TestConvertDeployModeGlobal: Swarm `deploy.mode: global` → DaemonSet.
+func TestConvertDeployModeGlobal(t *testing.T) {
+	const f = `
+services:
+  agent:
+    image: nginx:1.27
+    ports: ["80"]
+    deploy:
+      mode: global
+`
+	for _, o := range convertString(t, f) {
+		if _, ok := o.(*appsv1.DaemonSet); ok {
+			return
+		}
+		if _, ok := o.(*appsv1.Deployment); ok {
+			t.Fatal("deploy.mode: global produced a Deployment, want DaemonSet")
+		}
+	}
+	t.Fatal("no DaemonSet generated for deploy.mode: global")
+}
+
 // TestConvertPlacement: Swarm deploy.placement + x-orcinus-node-selector map to
 // nodeAffinity / topologySpread / nodeSelector.
 func TestConvertPlacement(t *testing.T) {
