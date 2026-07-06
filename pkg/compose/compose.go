@@ -21,6 +21,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,6 +48,12 @@ type Options struct {
 	Replicas int
 	// PVCSize is the default PersistentVolumeClaim request size (e.g. "1Gi").
 	PVCSize string
+	// Profiles selects compose profiles; services with a non-matching `profiles:`
+	// are skipped. Empty means only services without profiles are included.
+	Profiles []string
+	// BaseDir is the directory relative bind-mount / config / secret file paths
+	// resolve against (the original compose file's dir). Empty → each file's dir.
+	BaseDir string
 }
 
 // Convert runs the full compose → k8s pipeline and returns the decorated objects.
@@ -78,13 +85,18 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	bindMounts := map[string][]bindMount{}
 	placements := map[string]placementCfg{}
 	nodeSelectors := map[string]map[string]string{}
+	gpus := map[string]map[string]string{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
 		if err != nil {
 			return nil, fmt.Errorf("read compose file %q: %w", f, err)
 		}
-		pp, err := injectKomposeLabels(raw)
+		baseDir := opts.BaseDir
+		if baseDir == "" {
+			baseDir = filepath.Dir(f)
+		}
+		pp, err := injectKomposeLabels(raw, baseDir, opts.Profiles)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
@@ -114,6 +126,9 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, sel := range pp.nodeSelector {
 			nodeSelectors[svc] = sel
+		}
+		for svc, g := range pp.gpu {
+			gpus[svc] = g
 		}
 		tmp := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s", i, filepath.Base(f)))
 		if err := os.WriteFile(tmp, pp.content, 0o600); err != nil {
@@ -175,6 +190,7 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	//     x-orcinus-node-selector (before Rollout conversion so Rollouts inherit).
 	applyPlacement(objects, placements)
 	applyNodeSelector(objects, nodeSelectors)
+	applyGPUResources(objects, gpus)
 
 	// 7. Convert Deployments to Argo Rollouts for x-orcinus-rollout services.
 	objects, rolloutSvcs, err := convertRollouts(objects, rolloutCfgs)
@@ -782,6 +798,35 @@ func applyPlacement(objects []runtime.Object, cfgs map[string]placementCfg) {
 				WhenUnsatisfiable: corev1.ScheduleAnyway,
 				LabelSelector:     &metav1.LabelSelector{MatchLabels: workloadSelector(obj)},
 			})
+		}
+	}
+}
+
+// applyGPUResources sets extended-resource limits (e.g. nvidia.com/gpu) on a
+// service's container(s), from deploy.resources.reservations.generic_resources.
+func applyGPUResources(objects []runtime.Object, cfgs map[string]map[string]string) {
+	if len(cfgs) == 0 {
+		return
+	}
+	for _, obj := range objects {
+		ps, name := podSpecOf(obj)
+		if ps == nil {
+			continue
+		}
+		res := cfgs[name]
+		if len(res) == 0 {
+			continue
+		}
+		for ci := range ps.Containers {
+			c := &ps.Containers[ci]
+			if c.Resources.Limits == nil {
+				c.Resources.Limits = corev1.ResourceList{}
+			}
+			for rname, qty := range res {
+				if q, err := resource.ParseQuantity(qty); err == nil {
+					c.Resources.Limits[corev1.ResourceName(rname)] = q
+				}
+			}
 		}
 	}
 }

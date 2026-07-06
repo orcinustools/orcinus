@@ -11,6 +11,7 @@ manifests required.
 
 - **Architecture & design:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
 - **CLI usage guide:** [`docs/USAGE.md`](./docs/USAGE.md)
+- **Compose & Swarm compatibility:** [`docs/COMPOSE.md`](./docs/COMPOSE.md)
 - **Deployment & update strategies:** [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)
 - **Cluster setup (single / multi-node / HA):** [`docs/CLUSTER.md`](./docs/CLUSTER.md)
 - **Ingress & Traefik middlewares:** [`docs/INGRESS.md`](./docs/INGRESS.md)

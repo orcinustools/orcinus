@@ -350,6 +350,7 @@ components:
         prune: { type: boolean, default: true }
         wait: { type: boolean }
         acmeEmail: { type: string }
+        profiles: { type: array, items: { type: string }, description: compose profiles to activate }
     ProjectSummary:
       type: object
       properties:

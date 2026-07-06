@@ -29,6 +29,8 @@ type Request struct {
 	Mode        string // "" (auto) | "compose" | "manifest"
 	Replicas    int
 	PVCSize     string
+	Profiles    []string // compose profiles to activate
+	BaseDir     string   // dir to resolve relative bind-mount/config/secret file paths
 	Kubeconfig  string
 	Prune       bool
 	Wait        bool
@@ -98,6 +100,8 @@ func BuildObjects(sources [][]byte, req Request) ([]runtime.Object, error) {
 			Namespace:   req.Namespace,
 			Replicas:    req.Replicas,
 			PVCSize:     req.PVCSize,
+			Profiles:    req.Profiles,
+			BaseDir:     req.BaseDir,
 		})
 		if err != nil {
 			return nil, err

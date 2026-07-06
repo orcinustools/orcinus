@@ -28,6 +28,7 @@ type deployOpts struct {
 	prune      bool
 	wait       bool
 	acmeEmail  string
+	profiles   []string
 }
 
 func newDeployCmd() *cobra.Command {
@@ -52,6 +53,7 @@ func newDeployCmd() *cobra.Command {
 	f.BoolVar(&o.prune, "prune", true, "remove owned resources no longer present in the input")
 	f.BoolVar(&o.wait, "wait", false, "wait until workloads are ready")
 	f.StringVar(&o.acmeEmail, "acme-email", "", "email for auto-installing cert-manager when x-orcinus-tls is used")
+	f.StringArrayVar(&o.profiles, "profile", nil, "compose profile to activate (repeatable)")
 	return cmd
 }
 
@@ -83,9 +85,17 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		sources = append(sources, raw)
 	}
 
+	// Resolve relative config/secret/bind-mount file paths against the input's dir.
+	baseDir := "."
+	if len(o.files) > 0 && o.files[0] != "-" &&
+		!strings.HasPrefix(o.files[0], "http://") && !strings.HasPrefix(o.files[0], "https://") {
+		baseDir = filepath.Dir(o.files[0])
+	}
+
 	req := engine.Request{
 		Project:     o.project,
 		Namespace:   o.namespace,
+		BaseDir:     baseDir,
 		Mode:        o.as,
 		Replicas:    o.replicas,
 		PVCSize:     o.pvcSize,
@@ -93,6 +103,7 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		Prune:       o.prune,
 		Wait:        o.wait,
 		ACMEEmail:   o.acmeEmail,
+		Profiles:    o.profiles,
 		AutoInstall: true,
 	}
 

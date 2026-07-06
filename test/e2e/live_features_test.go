@@ -447,6 +447,51 @@ services:
 	}
 }
 
+// TestLiveConfig: a compose `configs:` entry with a relative file: path is
+// mounted into the pod as a ConfigMap and readable (regression: relative paths
+// used to break after the doc was copied to a temp dir).
+func TestLiveConfig(t *testing.T) {
+	requireLive(t)
+	orcinus, kubectl := liveCluster(t, "orcinus-cfg", 16489)
+
+	// Write the compose file + its referenced config file in the same dir.
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/app.conf", []byte("hello-from-config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/orcinus.yml", []byte(`
+services:
+  reader:
+    image: busybox:1.36
+    command: ["sh", "-c", "sleep 3600"]
+    configs:
+      - source: appconf
+        target: /etc/app.conf
+configs:
+  appconf:
+    file: ./app.conf
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := orcinus("deploy", "-f", dir+"/orcinus.yml", "--project", "cfg", "--wait"); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out)
+	}
+	var pod string
+	waitFor(t, 60*time.Second, "reader pod running", func() bool {
+		out, _ := kubectl("get", "pods", "-l", "io.kompose.service=reader", "--no-headers")
+		f := strings.Fields(out)
+		if len(f) >= 3 && f[2] == "Running" {
+			pod = f[0]
+			return true
+		}
+		return false
+	})
+	out, err := kubectl("exec", pod, "--", "cat", "/etc/app.conf")
+	if err != nil || !strings.Contains(out, "hello-from-config") {
+		t.Fatalf("config file not mounted/readable: %v\n%s", err, out)
+	}
+}
+
 // TestLiveBindMount: a host-path (bind) volume is mounted into the pod (node-local,
 // like a Compose/Swarm bind mount) — the pod reads a file seeded on the node.
 func TestLiveBindMount(t *testing.T) {

@@ -24,9 +24,10 @@ type DeployRequest struct {
 	Mode      string `json:"mode"`      // "" (auto) | compose | manifest
 	Replicas  int    `json:"replicas"`
 	PVCSize   string `json:"pvcSize"`
-	Prune     *bool  `json:"prune"` // default true
-	Wait      bool   `json:"wait"`
-	ACMEEmail string `json:"acmeEmail"`
+	Prune     *bool    `json:"prune"` // default true
+	Wait      bool     `json:"wait"`
+	ACMEEmail string   `json:"acmeEmail"`
+	Profiles  []string `json:"profiles"` // compose profiles to activate
 }
 
 // parseDeployInput accepts either a JSON DeployRequest or a raw YAML body (with
@@ -50,6 +51,7 @@ func (s *Server) parseDeployInput(r *http.Request) ([]byte, engine.Request, erro
 			Mode:      q.Get("mode"),
 			ACMEEmail: q.Get("acmeEmail"),
 			Wait:      q.Get("wait") == "true",
+			Profiles:  q["profile"],
 		}
 		if q.Get("prune") == "false" {
 			f := false
@@ -76,6 +78,7 @@ func (s *Server) parseDeployInput(r *http.Request) ([]byte, engine.Request, erro
 		Prune:       prune,
 		Wait:        dr.Wait,
 		ACMEEmail:   dr.ACMEEmail,
+		Profiles:    dr.Profiles,
 		AutoInstall: true,
 	}
 	return []byte(dr.Source), req, nil

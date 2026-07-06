@@ -487,6 +487,124 @@ services:
 	}
 }
 
+// TestConvertConfigsRelativeFile: a config with a relative file: path resolves
+// (regression: it used to fail after the doc was copied to a temp dir).
+func TestConvertConfigsRelativeFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "c.conf"), []byte("k=v\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fp := filepath.Join(dir, "docker-compose.yml")
+	if err := os.WriteFile(fp, []byte(`
+services:
+  app:
+    image: nginx:1.27
+    configs:
+      - source: cfg
+        target: /etc/app.conf
+configs:
+  cfg:
+    file: ./c.conf
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	objs, err := Convert(Options{Files: []string{fp}, ProjectName: "p", Namespace: "d"})
+	if err != nil {
+		t.Fatalf("Convert with relative config file: %v", err)
+	}
+	for _, o := range objs {
+		if _, ok := o.(*corev1.ConfigMap); ok {
+			return
+		}
+	}
+	t.Fatal("no ConfigMap generated from configs:")
+}
+
+// TestConvertEndpointModeDNSRR: deploy.endpoint_mode: dnsrr → headless Service.
+func TestConvertEndpointModeDNSRR(t *testing.T) {
+	const f = `
+services:
+  db:
+    image: postgres:16
+    ports: ["5432"]
+    deploy:
+      endpoint_mode: dnsrr
+`
+	for _, o := range convertString(t, f) {
+		if svc, ok := o.(*corev1.Service); ok {
+			if svc.Spec.ClusterIP != "None" {
+				t.Fatalf("dnsrr Service ClusterIP = %q, want None (headless)", svc.Spec.ClusterIP)
+			}
+			return
+		}
+	}
+	t.Fatal("no Service generated")
+}
+
+// TestConvertGenericResourcesGPU: generic_resources → nvidia.com/gpu limit.
+func TestConvertGenericResourcesGPU(t *testing.T) {
+	const f = `
+services:
+  trainer:
+    image: nginx:1.27
+    deploy:
+      resources:
+        reservations:
+          generic_resources:
+            - discrete_resource_spec: { kind: gpu, value: 2 }
+`
+	for _, o := range convertString(t, f) {
+		dep, ok := o.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+		q := dep.Spec.Template.Spec.Containers[0].Resources.Limits["nvidia.com/gpu"]
+		if q.String() != "2" {
+			t.Fatalf("nvidia.com/gpu limit = %q, want 2", q.String())
+		}
+		return
+	}
+	t.Fatal("no Deployment generated")
+}
+
+// TestConvertProfiles: services with a non-active profile are skipped.
+func TestConvertProfiles(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "docker-compose.yml")
+	src := []byte(`
+services:
+  web:
+    image: nginx:1.27
+  debugger:
+    image: busybox:1.36
+    profiles: ["debug"]
+`)
+	if err := os.WriteFile(fp, src, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	has := func(profiles []string, name string) bool {
+		objs, err := Convert(Options{Files: []string{fp}, ProjectName: "p", Namespace: "d", Profiles: profiles})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, o := range objs {
+			if d, ok := o.(*appsv1.Deployment); ok && d.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if has(nil, "debugger") {
+		t.Error("debugger should be excluded without its profile")
+	}
+	if !has([]string{"debug"}, "debugger") {
+		t.Error("debugger should be included with --profile debug")
+	}
+	if !has(nil, "web") {
+		t.Error("web (no profile) should always be included")
+	}
+}
+
 // TestConvertDeployModeGlobal: Swarm `deploy.mode: global` → DaemonSet.
 func TestConvertDeployModeGlobal(t *testing.T) {
 	const f = `

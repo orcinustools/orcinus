@@ -149,7 +149,8 @@ So after `orcinus cluster init`, the other commands work with no extra configura
 - neither → a clear error
 
 Force the mode with `--as compose` or `--as manifest`. Multi-document files may
-mix both kinds.
+mix both kinds. For the full list of which compose/Swarm keys map to what, see
+[`COMPOSE.md`](./COMPOSE.md).
 
 ### 3.5 Default file discovery
 

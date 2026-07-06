@@ -135,27 +135,38 @@ type preprocessed struct {
 	placement map[string]placementCfg
 	// nodeSelector maps a service name to a plain nodeSelector (x-orcinus-node-selector).
 	nodeSelector map[string]map[string]string
+	// gpu maps a service name to extended-resource limits (e.g. nvidia.com/gpu: "1")
+	// from deploy.resources.reservations.generic_resources.
+	gpu map[string]map[string]string
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
 // compose document so the forked kompose engine sees equivalent native labels.
-func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
+// baseDir is the compose file's directory (to resolve relative bind-mount /
+// config / secret file paths); activeProfiles filters services by compose profile.
+func injectKomposeLabels(composeBytes []byte, baseDir string, activeProfiles []string) (*preprocessed, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(composeBytes, &doc); err != nil {
 		return nil, fmt.Errorf("parse compose document: %w", err)
 	}
 
 	out := &preprocessed{
-		secrets:   map[string][]string{},
-		ingress:   map[string]ingressCfg{},
-		autoscale: map[string]autoscaleCfg{},
+		secrets:          map[string][]string{},
+		ingress:          map[string]ingressCfg{},
+		autoscale:        map[string]autoscaleCfg{},
 		strategy:         map[string]strategyCfg{},
 		rollout:          map[string]string{},
 		imagePullSecrets: map[string][]string{},
 		bindMounts:       map[string][]bindMount{},
 		placement:        map[string]placementCfg{},
 		nodeSelector:     map[string]map[string]string{},
+		gpu:              map[string]map[string]string{},
 	}
+
+	// Resolve relative file paths in top-level configs:/secrets: to absolute, so
+	// they still resolve after the doc is copied to a temp dir for the fork.
+	resolveFileRefs(doc["configs"], baseDir)
+	resolveFileRefs(doc["secrets"], baseDir)
 
 	servicesAny, ok := doc["services"].(map[string]interface{})
 	if !ok {
@@ -169,6 +180,13 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		if !ok {
 			continue
 		}
+		// compose profiles: drop services not selected by the active profile(s);
+		// for selected ones strip `profiles:` so the fork's loader doesn't re-filter.
+		if !serviceInProfiles(svc, activeProfiles) {
+			delete(servicesAny, name)
+			continue
+		}
+		delete(svc, "profiles")
 		labels := normalizeLabels(svc["labels"])
 
 		if v, ok := stringExt(svc[extController]); ok {
@@ -279,6 +297,19 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 			out.nodeSelector[name] = sel
 		}
 
+		// deploy.endpoint_mode: dnsrr → headless Service (unless a type is set).
+		// deploy.resources.reservations.generic_resources → GPU/extended limits.
+		if deploy, ok := svc["deploy"].(map[string]interface{}); ok {
+			if em, _ := stringExt(deploy["endpoint_mode"]); em == "dnsrr" {
+				if _, set := labels[lblServiceTy]; !set {
+					labels[lblServiceTy] = "headless"
+				}
+			}
+			if g := parseGenericResources(deploy); len(g) > 0 {
+				out.gpu[name] = g
+			}
+		}
+
 		// Swarm deploy.placement → nodeAffinity + topologySpread. Parsed here and
 		// stripped from the doc so the fork doesn't half-map it.
 		pc, err := parsePlacement(svc)
@@ -293,7 +324,7 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		// Bind mounts (host path → container) become hostPath volumes; named
 		// volumes are left for the fork to turn into PVCs. Strip the bind mounts
 		// from the compose doc so the fork doesn't PVC them.
-		if mounts, kept := extractBindMounts(svc["volumes"]); len(mounts) > 0 {
+		if mounts, kept := extractBindMounts(svc["volumes"], baseDir); len(mounts) > 0 {
 			out.bindMounts[name] = mounts
 			if len(kept) == 0 {
 				delete(svc, "volumes")
@@ -321,6 +352,82 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 	}
 	out.content = content
 	return out, nil
+}
+
+// resolveFileRefs rewrites relative `file:` paths in a top-level configs:/secrets:
+// map to absolute (relative to the compose file's dir), so they still resolve
+// after the doc is copied to a temp dir for the fork loader.
+func resolveFileRefs(v interface{}, baseDir string) {
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return
+	}
+	for _, entryAny := range m {
+		entry, ok := entryAny.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if f, ok := entry["file"].(string); ok && f != "" && !filepath.IsAbs(f) {
+			entry["file"] = absPath(f, baseDir)
+		}
+	}
+}
+
+// serviceInProfiles reports whether a service is selected given the active
+// profiles. A service with no `profiles:` is always selected; one with profiles
+// is selected only if it shares at least one with the active set.
+func serviceInProfiles(svc map[string]interface{}, active []string) bool {
+	profs := stringSliceExt(svc["profiles"])
+	if len(profs) == 0 {
+		return true
+	}
+	for _, p := range profs {
+		for _, a := range active {
+			if p == a {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// parseGenericResources maps deploy.resources.reservations.generic_resources to
+// Kubernetes extended-resource limits (a "gpu" kind → nvidia.com/gpu).
+func parseGenericResources(deploy map[string]interface{}) map[string]string {
+	res, ok := deploy["resources"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	rsv, ok := res["reservations"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	list, ok := rsv["generic_resources"].([]interface{})
+	if !ok {
+		return nil
+	}
+	out := map[string]string{}
+	for _, item := range list {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		spec, ok := m["discrete_resource_spec"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		kind, _ := stringExt(spec["kind"])
+		val, _ := stringExt(spec["value"])
+		if kind == "" || val == "" {
+			continue
+		}
+		name := kind
+		if !strings.Contains(kind, "/") && strings.Contains(strings.ToLower(kind), "gpu") {
+			name = "nvidia.com/gpu" // common case: "gpu" / "NVIDIA-GPU" → nvidia.com/gpu
+		}
+		out[name] = val
+	}
+	return out
 }
 
 // parsePlacement maps a service's Swarm `deploy.placement` to a placementCfg, or
@@ -451,7 +558,7 @@ func stringMapExt(v interface{}) map[string]string {
 // extractBindMounts separates host-path (bind) volumes from a service's
 // `volumes:` list. It returns the bind mounts (to become hostPath volumes) and
 // the remaining entries (named/anonymous volumes, left for the fork → PVC).
-func extractBindMounts(v interface{}) (mounts []bindMount, kept []interface{}) {
+func extractBindMounts(v interface{}, baseDir string) (mounts []bindMount, kept []interface{}) {
 	list, ok := v.([]interface{})
 	if !ok {
 		return nil, nil
@@ -462,7 +569,7 @@ func extractBindMounts(v interface{}) (mounts []bindMount, kept []interface{}) {
 		case string:
 			if src, tgt, ro, isBind := parseShortBind(e); isBind {
 				mounts = append(mounts, bindMount{
-					Name: fmt.Sprintf("bind-%d", idx), Source: bindMountHostPath(src), Target: tgt, ReadOnly: ro,
+					Name: fmt.Sprintf("bind-%d", idx), Source: bindMountHostPath(src, baseDir), Target: tgt, ReadOnly: ro,
 				})
 				idx++
 				continue
@@ -474,7 +581,7 @@ func extractBindMounts(v interface{}) (mounts []bindMount, kept []interface{}) {
 				ro, _ := e["read_only"].(bool)
 				if src != "" && tgt != "" {
 					mounts = append(mounts, bindMount{
-						Name: fmt.Sprintf("bind-%d", idx), Source: bindMountHostPath(src), Target: tgt, ReadOnly: ro,
+						Name: fmt.Sprintf("bind-%d", idx), Source: bindMountHostPath(src, baseDir), Target: tgt, ReadOnly: ro,
 					})
 					idx++
 					continue
@@ -511,8 +618,9 @@ func isBindSource(s string) bool {
 }
 
 // bindMountHostPath resolves a bind-mount source to an absolute host path
-// (Kubernetes hostPath requires an absolute path).
-func bindMountHostPath(src string) string {
+// (Kubernetes hostPath requires an absolute path). Relative paths resolve against
+// baseDir (the compose file's directory), matching Docker Compose semantics.
+func bindMountHostPath(src, baseDir string) string {
 	if strings.HasPrefix(src, "~") {
 		if home, err := os.UserHomeDir(); err == nil {
 			src = home + strings.TrimPrefix(src, "~")
@@ -521,10 +629,20 @@ func bindMountHostPath(src string) string {
 	if filepath.IsAbs(src) {
 		return filepath.Clean(src)
 	}
-	if abs, err := filepath.Abs(src); err == nil {
+	return absPath(src, baseDir)
+}
+
+// absPath resolves rel against baseDir (falling back to the process CWD) → absolute.
+func absPath(rel, baseDir string) string {
+	if baseDir != "" {
+		if abs, err := filepath.Abs(filepath.Join(baseDir, rel)); err == nil {
+			return abs
+		}
+	}
+	if abs, err := filepath.Abs(rel); err == nil {
 		return abs
 	}
-	return src
+	return rel
 }
 
 // normalizeLabels accepts compose labels in either map or `["k=v"]` list form and
@@ -567,6 +685,14 @@ func stringExt(v interface{}) (string, bool) {
 		return "false", true
 	case int:
 		return fmt.Sprintf("%d", t), true
+	case int64:
+		return fmt.Sprintf("%d", t), true
+	case float64:
+		// sigs.k8s.io/yaml decodes numbers as float64; render integers cleanly.
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%d", int64(t)), true
+		}
+		return fmt.Sprintf("%g", t), true
 	default:
 		return "", false
 	}
