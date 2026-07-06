@@ -447,6 +447,22 @@ services:
 	}
 }
 
+// TestLiveNvidiaPlugin: the nvidia-device-plugin installs cleanly (its DaemonSet
+// is applied). GPU scheduling itself needs real GPU nodes, not tested here.
+func TestLiveNvidiaPlugin(t *testing.T) {
+	requireLive(t)
+	orcinus, kubectl := liveCluster(t, "orcinus-gpu", 16490)
+	if out, err := orcinus("plugin", "install", "nvidia-device-plugin"); err != nil {
+		t.Fatalf("install nvidia-device-plugin: %v\n%s", err, out)
+	}
+	if out, err := kubectl("-n", "kube-system", "get", "daemonset", "nvidia-device-plugin-daemonset"); err != nil {
+		t.Fatalf("device-plugin DaemonSet not created: %v\n%s", err, out)
+	}
+	if out, err := orcinus("plugin", "remove", "nvidia-device-plugin"); err != nil {
+		t.Fatalf("remove nvidia-device-plugin: %v\n%s", err, out)
+	}
+}
+
 // TestLiveConfig: a compose `configs:` entry with a relative file: path is
 // mounted into the pod as a ConfigMap and readable (regression: relative paths
 // used to break after the doc was copied to a temp dir).

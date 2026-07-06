@@ -44,6 +44,7 @@ Legend: ✅ supported · ⚠️ partial / best-effort · ❌ not mapped
 | `deploy.mode` | `Deployment` (replicated) / `DaemonSet` (global) | ✅ |
 | `deploy.replicas` | `.spec.replicas` | ✅ |
 | `deploy.resources.limits/reservations` | container `resources` (cpu + memory) | ✅ |
+| `deploy.resources…devices` (GPU) | GPU limit — `capabilities: [gpu]` → `nvidia.com/gpu` (see [GPUs](#gpus)) | ✅ |
 | `deploy.resources…generic_resources` | extended-resource limit (a `gpu` kind → `nvidia.com/gpu`) | ✅ |
 | `deploy.update_config` | `.spec.strategy` + minReadySeconds/progressDeadline | ✅ |
 | `deploy.placement.constraints` | `nodeAffinity` (see [Placement](./USAGE.md#8-placement--node-constraints)) | ✅ |
@@ -88,6 +89,38 @@ secrets:
 Relative `file:` paths resolve against the compose file's directory (deploy from
 the project dir, or pass an absolute path). For a private-registry login use
 [`orcinus secret create-registry`](./REGISTRY.md), not a compose secret.
+
+## GPUs
+
+Both the modern Compose GPU form and the older Swarm form map to a Kubernetes GPU
+limit:
+
+```yaml
+services:
+  trainer:
+    image: my/cuda-app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia        # amd → amd.com/gpu
+              count: 1              # "all" defaults to 1 (set an explicit number)
+              capabilities: [gpu]
+```
+
+→ the container gets `resources.limits: { nvidia.com/gpu: "1" }`.
+
+**To actually schedule on GPUs the cluster must advertise them** — install the
+device plugin and have NVIDIA drivers + the NVIDIA container runtime on the GPU
+nodes:
+
+```bash
+orcinus plugin install nvidia-device-plugin
+```
+
+Without a GPU node advertising `nvidia.com/gpu`, a GPU pod stays **Pending**
+(`orcinus ps <project>`). The old Swarm form also works:
+`generic_resources: [{ discrete_resource_spec: { kind: gpu, value: 1 } }]`.
 
 ## Notes
 

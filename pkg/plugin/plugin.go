@@ -108,6 +108,13 @@ var Registry = map[string]Spec{
 		Version:     "v0.7.2",
 		Manifests:   []string{"https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml"},
 	},
+	"nvidia-device-plugin": {
+		Name:        "nvidia-device-plugin",
+		Description: "Expose NVIDIA GPUs to pods (nvidia.com/gpu)",
+		Version:     "v0.16.2",
+		Manifests:   []string{"https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.16.2/deployments/static/nvidia-device-plugin.yml"},
+		Notes:       "Requires NVIDIA drivers + the NVIDIA container runtime on GPU nodes. Then request a GPU with deploy.resources.reservations.devices (capabilities: [gpu]).",
+	},
 	"argo-rollouts": {
 		Name:        "argo-rollouts",
 		Description: "Progressive delivery — canary & blue-green (Argo Rollouts)",

@@ -391,8 +391,10 @@ func serviceInProfiles(svc map[string]interface{}, active []string) bool {
 	return false
 }
 
-// parseGenericResources maps deploy.resources.reservations.generic_resources to
-// Kubernetes extended-resource limits (a "gpu" kind → nvidia.com/gpu).
+// parseGenericResources maps GPU/extended resources from a service's
+// deploy.resources.reservations to Kubernetes extended-resource limits. It
+// supports both the Swarm `generic_resources` form and the modern Compose
+// `devices` form (driver: nvidia, capabilities: [gpu]).
 func parseGenericResources(deploy map[string]interface{}) map[string]string {
 	res, ok := deploy["resources"].(map[string]interface{})
 	if !ok {
@@ -402,32 +404,64 @@ func parseGenericResources(deploy map[string]interface{}) map[string]string {
 	if !ok {
 		return nil
 	}
-	list, ok := rsv["generic_resources"].([]interface{})
-	if !ok {
+	out := map[string]string{}
+
+	// Swarm: generic_resources[].discrete_resource_spec{kind,value}
+	if list, ok := rsv["generic_resources"].([]interface{}); ok {
+		for _, item := range list {
+			m, _ := item.(map[string]interface{})
+			spec, ok := m["discrete_resource_spec"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			kind, _ := stringExt(spec["kind"])
+			val, _ := stringExt(spec["value"])
+			if kind == "" || val == "" {
+				continue
+			}
+			name := kind
+			if !strings.Contains(kind, "/") && strings.Contains(strings.ToLower(kind), "gpu") {
+				name = "nvidia.com/gpu"
+			}
+			out[name] = val
+		}
+	}
+
+	// Compose GPU: devices[]{driver, count, capabilities: [gpu]}
+	if list, ok := rsv["devices"].([]interface{}); ok {
+		for _, item := range list {
+			m, _ := item.(map[string]interface{})
+			if m == nil {
+				continue
+			}
+			caps := stringSliceExt(m["capabilities"])
+			if !containsFold(caps, "gpu") {
+				continue
+			}
+			name := "nvidia.com/gpu"
+			if d, _ := stringExt(m["driver"]); strings.EqualFold(d, "amd") {
+				name = "amd.com/gpu"
+			}
+			val := "1"
+			if c, ok := stringExt(m["count"]); ok && c != "" && !strings.EqualFold(c, "all") {
+				val = c // "count: all" has no fixed k8s equivalent → default 1
+			}
+			out[name] = val
+		}
+	}
+	if len(out) == 0 {
 		return nil
 	}
-	out := map[string]string{}
-	for _, item := range list {
-		m, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		spec, ok := m["discrete_resource_spec"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		kind, _ := stringExt(spec["kind"])
-		val, _ := stringExt(spec["value"])
-		if kind == "" || val == "" {
-			continue
-		}
-		name := kind
-		if !strings.Contains(kind, "/") && strings.Contains(strings.ToLower(kind), "gpu") {
-			name = "nvidia.com/gpu" // common case: "gpu" / "NVIDIA-GPU" → nvidia.com/gpu
-		}
-		out[name] = val
-	}
 	return out
+}
+
+func containsFold(list []string, want string) bool {
+	for _, s := range list {
+		if strings.EqualFold(s, want) {
+			return true
+		}
+	}
+	return false
 }
 
 // parsePlacement maps a service's Swarm `deploy.placement` to a placementCfg, or

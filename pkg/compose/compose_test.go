@@ -567,6 +567,35 @@ services:
 	t.Fatal("no Deployment generated")
 }
 
+// TestConvertDevicesGPU: modern Compose GPU syntax (deploy.resources.reservations
+// .devices with capabilities:[gpu]) → nvidia.com/gpu limit.
+func TestConvertDevicesGPU(t *testing.T) {
+	const f = `
+services:
+  trainer:
+    image: nginx:1.27
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+`
+	for _, o := range convertString(t, f) {
+		dep, ok := o.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+		q := dep.Spec.Template.Spec.Containers[0].Resources.Limits["nvidia.com/gpu"]
+		if q.String() != "2" {
+			t.Fatalf("nvidia.com/gpu = %q, want 2 (devices syntax)", q.String())
+		}
+		return
+	}
+	t.Fatal("no Deployment generated")
+}
+
 // TestConvertProfiles: services with a non-active profile are skipped.
 func TestConvertProfiles(t *testing.T) {
 	dir := t.TempDir()
