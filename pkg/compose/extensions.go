@@ -30,6 +30,7 @@ const (
 	extMiddleware  = "x-orcinus-middleware"   // Traefik middleware name(s) to attach to the ingress route (in order)
 
 	extImagePullSecret = "x-orcinus-image-pull-secret" // imagePullSecret name(s) for a private registry
+	extNodeSelector    = "x-orcinus-node-selector"     // map of node labels to pin the pod (k8s nodeSelector)
 
 	extAutoscaleMin = "x-orcinus-autoscale-min"    // HPA min replicas
 	extAutoscaleMax = "x-orcinus-autoscale-max"    // HPA max replicas (enables HPA)
@@ -81,6 +82,21 @@ type bindMount struct {
 	ReadOnly bool
 }
 
+// nodeConstraint is one Swarm placement constraint mapped to a Kubernetes node
+// selector requirement (kept provider-neutral so extensions.go needs no k8s import).
+type nodeConstraint struct {
+	Key      string
+	Operator string // In | NotIn | Exists | DoesNotExist
+	Values   []string
+}
+
+// placementCfg holds a service's Swarm `deploy.placement` mapped for Kubernetes:
+// constraints → nodeAffinity, preferences(spread) → topologySpreadConstraints.
+type placementCfg struct {
+	constraints []nodeConstraint
+	spreadKeys  []string
+}
+
 // autoscaleCfg holds HPA hints for a service.
 type autoscaleCfg struct {
 	Min, Max, CPU, Memory int
@@ -115,6 +131,10 @@ type preprocessed struct {
 	imagePullSecrets map[string][]string
 	// bindMounts maps a service name to host-path (bind) volumes → hostPath.
 	bindMounts map[string][]bindMount
+	// placement maps a service name to Swarm placement → nodeAffinity/topologySpread.
+	placement map[string]placementCfg
+	// nodeSelector maps a service name to a plain nodeSelector (x-orcinus-node-selector).
+	nodeSelector map[string]map[string]string
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
@@ -133,6 +153,8 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 		rollout:          map[string]string{},
 		imagePullSecrets: map[string][]string{},
 		bindMounts:       map[string][]bindMount{},
+		placement:        map[string]placementCfg{},
+		nodeSelector:     map[string]map[string]string{},
 	}
 
 	servicesAny, ok := doc["services"].(map[string]interface{})
@@ -252,6 +274,22 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 			out.imagePullSecrets[name] = secrets
 		}
 
+		// x-orcinus-node-selector → plain pod nodeSelector.
+		if sel := stringMapExt(svc[extNodeSelector]); len(sel) > 0 {
+			out.nodeSelector[name] = sel
+		}
+
+		// Swarm deploy.placement → nodeAffinity + topologySpread. Parsed here and
+		// stripped from the doc so the fork doesn't half-map it.
+		pc, err := parsePlacement(svc)
+		if err != nil {
+			return nil, fmt.Errorf("service %q: %w", name, err)
+		}
+		if pc != nil {
+			out.placement[name] = *pc
+			stripPlacement(svc)
+		}
+
 		// Bind mounts (host path → container) become hostPath volumes; named
 		// volumes are left for the fork to turn into PVCs. Strip the bind mounts
 		// from the compose doc so the fork doesn't PVC them.
@@ -283,6 +321,131 @@ func injectKomposeLabels(composeBytes []byte) (*preprocessed, error) {
 	}
 	out.content = content
 	return out, nil
+}
+
+// parsePlacement maps a service's Swarm `deploy.placement` to a placementCfg, or
+// returns nil if there is none. Unknown constraint keys are a hard error.
+func parsePlacement(svc map[string]interface{}) (*placementCfg, error) {
+	deploy, ok := svc["deploy"].(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+	pl, ok := deploy["placement"].(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+	cfg := &placementCfg{}
+	if cs, ok := pl["constraints"].([]interface{}); ok {
+		for _, c := range cs {
+			s, ok := c.(string)
+			if !ok {
+				continue
+			}
+			nc, err := parseConstraint(s)
+			if err != nil {
+				return nil, err
+			}
+			cfg.constraints = append(cfg.constraints, nc)
+		}
+	}
+	if prefs, ok := pl["preferences"].([]interface{}); ok {
+		for _, p := range prefs {
+			m, ok := p.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			spread, _ := m["spread"].(string)
+			if spread == "" {
+				continue
+			}
+			key, ok := mapNodeLabelKey(spread)
+			if !ok {
+				return nil, fmt.Errorf("unsupported placement preference spread %q", spread)
+			}
+			cfg.spreadKeys = append(cfg.spreadKeys, key)
+		}
+	}
+	if len(cfg.constraints) == 0 && len(cfg.spreadKeys) == 0 {
+		return nil, nil
+	}
+	return cfg, nil
+}
+
+// stripPlacement removes deploy.placement so the fork ignores it (orcinus owns it).
+func stripPlacement(svc map[string]interface{}) {
+	if d, ok := svc["deploy"].(map[string]interface{}); ok {
+		delete(d, "placement")
+	}
+}
+
+// parseConstraint maps one Swarm constraint (`key == value` / `key != value`) to
+// a Kubernetes node selector requirement.
+func parseConstraint(s string) (nodeConstraint, error) {
+	neg := false
+	var parts []string
+	switch {
+	case strings.Contains(s, "!="):
+		neg, parts = true, strings.SplitN(s, "!=", 2)
+	case strings.Contains(s, "=="):
+		parts = strings.SplitN(s, "==", 2)
+	default:
+		return nodeConstraint{}, fmt.Errorf("invalid placement constraint %q (want 'key == value' or 'key != value')", s)
+	}
+	key := strings.TrimSpace(parts[0])
+	val := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+
+	// node.role has no value in Kubernetes — it maps to the presence/absence of the
+	// control-plane role label.
+	if key == "node.role" {
+		manager := val == "manager"
+		exists := manager != neg // ==manager / !=worker → Exists ; else DoesNotExist
+		op := "DoesNotExist"
+		if exists {
+			op = "Exists"
+		}
+		return nodeConstraint{Key: "node-role.kubernetes.io/control-plane", Operator: op}, nil
+	}
+	k8sKey, ok := mapNodeLabelKey(key)
+	if !ok {
+		return nodeConstraint{}, fmt.Errorf("unsupported placement constraint key %q "+
+			"(supported: node.role, node.hostname, node.platform.arch, node.platform.os, node.labels.*)", key)
+	}
+	op := "In"
+	if neg {
+		op = "NotIn"
+	}
+	return nodeConstraint{Key: k8sKey, Operator: op, Values: []string{val}}, nil
+}
+
+// mapNodeLabelKey maps a Swarm node attribute to the Kubernetes node label.
+func mapNodeLabelKey(k string) (string, bool) {
+	switch k {
+	case "node.hostname":
+		return "kubernetes.io/hostname", true
+	case "node.platform.arch":
+		return "kubernetes.io/arch", true
+	case "node.platform.os", "engine.labels.operatingsystem":
+		return "kubernetes.io/os", true
+	}
+	if strings.HasPrefix(k, "node.labels.") {
+		return strings.TrimPrefix(k, "node.labels."), true
+	}
+	return "", false
+}
+
+// stringMapExt reads a mapping extension value into a string map.
+func stringMapExt(v interface{}) map[string]string {
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	out := map[string]string{}
+	for k, val := range m {
+		if s, ok := stringExt(val); ok {
+			out[k] = s
+		}
+	}
+	return out
 }
 
 // extractBindMounts separates host-path (bind) volumes from a service's

@@ -1,0 +1,33 @@
+# Placement & node constraints — Docker Swarm's deploy.placement, mapped to
+# Kubernetes nodeAffinity + topologySpread. See docs/USAGE.md §8.
+#
+# 1) Label your nodes (referenced by node.labels.* constraints):
+#      orcinus node ls
+#      orcinus node label <node> zone=east disktype=ssd
+#
+# 2) Deploy — the scheduler honors the constraints:
+#      orcinus deploy -f orcinus.yml --wait
+#
+# Constraints are REQUIRED (hard): if no node matches, the pod stays Pending.
+# Preferences (spread) are soft.
+
+services:
+  api:
+    image: nginx:1.27
+    ports: ["80"]
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker          # keep off control-plane nodes
+          - node.labels.zone == east     # only nodes labeled zone=east
+          - node.platform.arch == amd64  # amd64 only
+        preferences:
+          - spread: node.labels.zone     # spread replicas across zones
+
+  # Plain node pin without Swarm syntax:
+  cache:
+    image: redis:7
+    ports: ["6379"]
+    x-orcinus-node-selector:
+      disktype: ssd

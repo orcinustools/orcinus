@@ -385,6 +385,68 @@ services:
 	}
 }
 
+// TestLivePlacement: `node ls` / `node label`, and Swarm placement constraints →
+// nodeAffinity (schedulable when satisfied, Pending when not).
+func TestLivePlacement(t *testing.T) {
+	requireLive(t)
+	orcinus, kubectl := liveCluster(t, "orcinus-pl", 16488)
+
+	nodeOut, err := kubectl("get", "nodes", "-o", "jsonpath={.items[0].metadata.name}")
+	if err != nil {
+		t.Fatalf("get node name: %v\n%s", err, nodeOut)
+	}
+	nodeName := strings.TrimSpace(nodeOut)
+
+	// node ls shows the control-plane node.
+	if out, err := orcinus("node", "ls"); err != nil || !strings.Contains(out, nodeName) || !strings.Contains(out, "control-plane") {
+		t.Fatalf("node ls: %v\n%s", err, out)
+	}
+	// node label sets a label the constraints reference.
+	if out, err := orcinus("node", "label", nodeName, "zone=east"); err != nil {
+		t.Fatalf("node label: %v\n%s", err, out)
+	}
+	if got, _ := kubectl("get", "node", nodeName, "-o", "jsonpath={.metadata.labels.zone}"); strings.TrimSpace(got) != "east" {
+		t.Fatalf("node label zone = %q, want east", got)
+	}
+
+	// Satisfiable placement (single node is control-plane + zone=east) → Running.
+	okFile := writeCompose(t, `
+services:
+  ok:
+    image: nginx:1.27
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.zone == east
+`)
+	if out, err := orcinus("deploy", "-f", okFile, "--project", "plok", "--wait"); err != nil {
+		t.Fatalf("deploy (satisfiable): %v\n%s", err, out)
+	}
+
+	// Unsatisfiable placement (no node with zone=west) → pod stays Pending.
+	badFile := writeCompose(t, `
+services:
+  bad:
+    image: nginx:1.27
+    deploy:
+      placement:
+        constraints:
+          - node.labels.zone == west
+`)
+	if out, err := orcinus("deploy", "-f", badFile, "--project", "plbad"); err != nil {
+		t.Fatalf("deploy (unsatisfiable): %v\n%s", err, out)
+	}
+	// It must NOT schedule — confirm it is Pending and stays Pending.
+	waitFor(t, 40*time.Second, "unschedulable pod is Pending", func() bool {
+		out, _ := kubectl("get", "pods", "-l", "io.kompose.service=bad", "--no-headers")
+		return strings.Contains(out, "Pending")
+	})
+	if out, _ := kubectl("get", "pods", "-l", "io.kompose.service=bad", "--no-headers"); strings.Contains(out, "Running") {
+		t.Errorf("unschedulable pod should not be Running:\n%s", out)
+	}
+}
+
 // TestLiveBindMount: a host-path (bind) volume is mounted into the pod (node-local,
 // like a Compose/Swarm bind mount) — the pod reads a file seeded on the node.
 func TestLiveBindMount(t *testing.T) {

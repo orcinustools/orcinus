@@ -76,6 +76,8 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	rolloutCfgs := map[string]string{}
 	pullSecrets := map[string][]string{}
 	bindMounts := map[string][]bindMount{}
+	placements := map[string]placementCfg{}
+	nodeSelectors := map[string]map[string]string{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
@@ -106,6 +108,12 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, mounts := range pp.bindMounts {
 			bindMounts[svc] = mounts
+		}
+		for svc, pc := range pp.placement {
+			placements[svc] = pc
+		}
+		for svc, sel := range pp.nodeSelector {
+			nodeSelectors[svc] = sel
 		}
 		tmp := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s", i, filepath.Base(f)))
 		if err := os.WriteFile(tmp, pp.content, 0o600); err != nil {
@@ -162,6 +170,11 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	// 6c. Attach host-path (bind-mount) volumes — node-local, like a Compose/Swarm
 	//     bind mount (before Rollout conversion so Rollouts inherit them).
 	applyBindMounts(objects, bindMounts)
+
+	// 6d. Swarm deploy.placement → nodeAffinity/topologySpread, plus the plain
+	//     x-orcinus-node-selector (before Rollout conversion so Rollouts inherit).
+	applyPlacement(objects, placements)
+	applyNodeSelector(objects, nodeSelectors)
 
 	// 7. Convert Deployments to Argo Rollouts for x-orcinus-rollout services.
 	objects, rolloutSvcs, err := convertRollouts(objects, rolloutCfgs)
@@ -720,6 +733,99 @@ func applyBindMounts(objects []runtime.Object, cfgs map[string][]bindMount) {
 			}
 		}
 	}
+}
+
+// applyPlacement maps Swarm placement to Kubernetes scheduling: constraints →
+// required nodeAffinity, preferences(spread) → topologySpreadConstraints.
+func applyPlacement(objects []runtime.Object, cfgs map[string]placementCfg) {
+	if len(cfgs) == 0 {
+		return
+	}
+	for _, obj := range objects {
+		ps, name := podSpecOf(obj)
+		if ps == nil {
+			continue
+		}
+		cfg, ok := cfgs[name]
+		if !ok {
+			continue
+		}
+		if len(cfg.constraints) > 0 {
+			reqs := make([]corev1.NodeSelectorRequirement, 0, len(cfg.constraints))
+			for _, c := range cfg.constraints {
+				reqs = append(reqs, corev1.NodeSelectorRequirement{
+					Key: c.Key, Operator: corev1.NodeSelectorOperator(c.Operator), Values: c.Values,
+				})
+			}
+			if ps.Affinity == nil {
+				ps.Affinity = &corev1.Affinity{}
+			}
+			if ps.Affinity.NodeAffinity == nil {
+				ps.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+			}
+			na := ps.Affinity.NodeAffinity
+			if na.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+				na.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{{}},
+				}
+			}
+			sel := na.RequiredDuringSchedulingIgnoredDuringExecution
+			if len(sel.NodeSelectorTerms) == 0 {
+				sel.NodeSelectorTerms = []corev1.NodeSelectorTerm{{}}
+			}
+			sel.NodeSelectorTerms[0].MatchExpressions = append(sel.NodeSelectorTerms[0].MatchExpressions, reqs...)
+		}
+		for _, key := range cfg.spreadKeys {
+			ps.TopologySpreadConstraints = append(ps.TopologySpreadConstraints, corev1.TopologySpreadConstraint{
+				MaxSkew:           1,
+				TopologyKey:       key,
+				WhenUnsatisfiable: corev1.ScheduleAnyway,
+				LabelSelector:     &metav1.LabelSelector{MatchLabels: workloadSelector(obj)},
+			})
+		}
+	}
+}
+
+// applyNodeSelector sets a plain pod nodeSelector from x-orcinus-node-selector.
+func applyNodeSelector(objects []runtime.Object, cfgs map[string]map[string]string) {
+	if len(cfgs) == 0 {
+		return
+	}
+	for _, obj := range objects {
+		ps, name := podSpecOf(obj)
+		if ps == nil {
+			continue
+		}
+		sel := cfgs[name]
+		if len(sel) == 0 {
+			continue
+		}
+		if ps.NodeSelector == nil {
+			ps.NodeSelector = map[string]string{}
+		}
+		for k, v := range sel {
+			ps.NodeSelector[k] = v
+		}
+	}
+}
+
+// workloadSelector returns a workload's selector match labels (for topologySpread).
+func workloadSelector(obj runtime.Object) map[string]string {
+	switch t := obj.(type) {
+	case *appsv1.Deployment:
+		if t.Spec.Selector != nil {
+			return t.Spec.Selector.MatchLabels
+		}
+	case *appsv1.StatefulSet:
+		if t.Spec.Selector != nil {
+			return t.Spec.Selector.MatchLabels
+		}
+	case *appsv1.DaemonSet:
+		if t.Spec.Selector != nil {
+			return t.Spec.Selector.MatchLabels
+		}
+	}
+	return nil
 }
 
 func podSpecOf(obj runtime.Object) (*corev1.PodSpec, string) {

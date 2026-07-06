@@ -281,3 +281,7 @@ can be omitted.
   and only expose the API to networks you trust.
 - **Workers don't need the datastore.** Only masters care about the datastore;
   `join --role agent` just needs `--server` + `--token`.
+- **Many nodes on one host → raise inotify limits.** Each node runs a kubelet;
+  several on one machine can exhaust the kernel's inotify instances, and nodes
+  fail with `too many open files`. Bump them (and persist in `/etc/sysctl.d/`):
+  `sudo sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_user_watches=1048576`.

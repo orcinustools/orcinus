@@ -37,8 +37,10 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.15 `kubectl`](#515-orcinus-kubectl)
   - [5.16 `version`](#516-orcinus-version)
   - [5.17 `completion`](#517-orcinus-completion)
+  - [5.18 `node`](#518-orcinus-node)
 - [6. Datastore](#6-datastore)
 - [7. Volumes & storage](#7-volumes--storage)
+- [8. Placement & node constraints](#8-placement--node-constraints)
 - [Appendix A — Compose → Kubernetes mapping](#appendix-a--compose--kubernetes-mapping)
 - [Appendix B — `x-orcinus-*` extension reference](#appendix-b--x-orcinus--extension-reference)
 - [Appendix C — Environment variables & files](#appendix-c--environment-variables--files)
@@ -67,6 +69,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Roll back a bad release | `orcinus rollback <service>` |
 | Manage secrets / TLS certs | `orcinus secret create[-tls] …` |
 | Add a cluster add-on | `orcinus plugin install <name>` |
+| Inspect / label nodes | `orcinus node ls` · `orcinus node label` |
 | Drop to kubectl | `orcinus kubectl <args>` |
 | Serve the REST API | `orcinus api` (see [`API.md`](./API.md)) |
 
@@ -598,6 +601,17 @@ orcinus completion bash > /etc/bash_completion.d/orcinus
 source <(orcinus completion zsh)
 ```
 
+### 5.18 `orcinus node`
+
+Inspect and label cluster nodes — node labels back placement constraints
+([§8](#8-placement--node-constraints)), like `docker node update --label-add`.
+
+```bash
+orcinus node ls                                  # NAME, STATUS, ROLES, VERSION
+orcinus node label <node> zone=east disktype=ssd # add/update labels
+orcinus node label <node> --rm disktype          # remove a label
+```
+
 ---
 
 ## 6. Datastore
@@ -676,6 +690,65 @@ services:
 
 ---
 
+## 8. Placement & node constraints
+
+Pin services to specific nodes with Docker Swarm's `deploy.placement` — orcinus
+maps it to Kubernetes scheduling automatically:
+
+| Swarm | Kubernetes |
+|---|---|
+| `placement.constraints: [key == value]` | `nodeAffinity` (required) `In` |
+| `placement.constraints: [key != value]` | `nodeAffinity` (required) `NotIn` |
+| `placement.preferences: [{spread: key}]` | `topologySpreadConstraints` (soft) |
+
+Supported constraint keys:
+
+| Swarm key | Maps to node label |
+|---|---|
+| `node.role == manager` / `worker` | presence of `node-role.kubernetes.io/control-plane` (Exists / DoesNotExist) |
+| `node.hostname` | `kubernetes.io/hostname` |
+| `node.platform.arch` | `kubernetes.io/arch` (e.g. `amd64`, `arm64`) |
+| `node.platform.os` | `kubernetes.io/os` |
+| `node.labels.<x>` | `<x>` (a custom node label) |
+
+An unknown key is a **hard error** (so typos don't silently no-op).
+
+**Workflow** — label the nodes, then constrain the service:
+
+```bash
+orcinus node label worker-1 zone=east disktype=ssd
+```
+
+```yaml
+services:
+  api:
+    image: myapi:1.0
+    deploy:
+      placement:
+        constraints:
+          - node.role == worker         # keep off control-plane nodes
+          - node.labels.zone == east    # only zone=east nodes
+          - node.platform.arch == amd64
+        preferences:
+          - spread: node.labels.zone    # spread replicas across zones
+```
+
+For a plain node pin without Swarm syntax, use the extension:
+
+```yaml
+    x-orcinus-node-selector:
+      disktype: ssd
+```
+
+**Notes.**
+- Constraints are **required** (hard): if no node matches, the pod stays
+  **Pending** (unschedulable) — check with `orcinus ps <project>`.
+- Preferences (`spread`) are **soft** — best-effort, never block scheduling.
+- On a single-node cluster the one node is a control-plane node, so
+  `node.role == worker` will leave pods Pending; use `== manager` (or omit it).
+
+---
+
 ## Appendix A — Compose → Kubernetes mapping
 
 | Compose element | Kubernetes object | Notes |
@@ -688,6 +761,7 @@ services:
 | `deploy.replicas` | `.spec.replicas` | |
 | `deploy.resources` | `resources.limits/requests` | cpu + memory |
 | `deploy.update_config` | `.spec.strategy` (+ minReadySeconds/progressDeadline) | order/parallelism/delay/monitor |
+| `deploy.placement` | `nodeAffinity` + `topologySpreadConstraints` | constraints/preferences — see [§8](#8-placement--node-constraints) |
 | `healthcheck` | `livenessProbe` | exec/http from the compose healthcheck |
 | `restart` | `restartPolicy` / controller-managed | |
 | `depends_on` | best-effort apply ordering | no complex readiness guarantee |
@@ -726,6 +800,7 @@ keys; orcinus parses them during conversion.
 | `x-orcinus-strip-prefix` | `true` \| prefix \| list | Traefik **StripPrefix**: strip the path prefix so the backend sees `/` (see [INGRESS.md](./INGRESS.md)) |
 | `x-orcinus-middleware` | middleware name or list | Attach Traefik **middleware(s)** to the route, in order (rate limit, headers, auth, redirect, …) |
 | `x-orcinus-image-pull-secret` | secret name or list | Attach **imagePullSecret(s)** for a private registry (see [`REGISTRY.md`](./REGISTRY.md)) |
+| `x-orcinus-node-selector` | map of `label: value` | Pin the pod to nodes with these labels (k8s `nodeSelector`); see [§8](#8-placement--node-constraints) |
 | `x-orcinus-autoscale-min` | int | HPA min replicas (default 1) |
 | `x-orcinus-autoscale-max` | int | HPA max replicas (**enables** the HPA) |
 | `x-orcinus-autoscale-cpu` | int | HPA target CPU utilization % (default 80 if no metric) |

@@ -22,6 +22,7 @@ orcinus deploy --wait          # picks up orcinus.yml automatically
 | [`custom-cert/`](./custom-cert/orcinus.yml) | **Bring-your-own TLS cert** (incl. wildcard) via `orcinus secret create-tls` + `x-orcinus-tls-secret`. |
 | [`traefik-middleware/`](./traefik-middleware/orcinus.yml) | **Traefik middlewares** — path prefix stripping (`x-orcinus-strip-prefix`) + attaching rate-limit / headers / auth / redirect by name (`x-orcinus-middleware`). See [`../docs/INGRESS.md`](../docs/INGRESS.md). |
 | [`private-registry/`](./private-registry/orcinus.yml) | **Private image registry** — `orcinus secret create-registry` + `x-orcinus-image-pull-secret`. See [`../docs/REGISTRY.md`](../docs/REGISTRY.md). |
+| [`placement/`](./placement/orcinus.yml) | **Placement & node constraints** — Swarm `deploy.placement` → nodeAffinity/topologySpread + `orcinus node label`. See [`../docs/USAGE.md`](../docs/USAGE.md#8-placement--node-constraints). |
 
 Single-file basics also live here: [`orcinus.yml`](./orcinus.yml) and
 [`docker-compose.yml`](./docker-compose.yml).

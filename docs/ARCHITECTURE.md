@@ -161,6 +161,7 @@ reference.
 | `environment` / `env_file` | `env` + `ConfigMap`/`Secret` | secrets marked with `x-orcinus-secret` |
 | `deploy.replicas` | `.spec.replicas` | |
 | `deploy.update_config` | `.spec.strategy` + minReadySeconds/progressDeadline | order/parallelism/delay/monitor mapped |
+| `deploy.placement` | `nodeAffinity` + `topologySpreadConstraints` | Swarm constraints/preferences (node.role/hostname/arch/os/labels) |
 | `deploy.resources` | `resources.limits/requests` | cpu/memory mapped and unit-tested |
 | `healthcheck` | `livenessProbe` | exec/http probe derived from the compose healthcheck |
 | `x-orcinus-autoscale-*` | `HorizontalPodAutoscaler` | min/max/cpu/memory → HPA for the service |
@@ -196,9 +197,11 @@ services:
 Additional keys cover autoscaling (`x-orcinus-autoscale-{min,max,cpu,memory}`),
 deployment strategy (`x-orcinus-strategy`, `x-orcinus-max-surge`,
 `x-orcinus-max-unavailable`), progressive delivery (`x-orcinus-rollout`), and
-Traefik ingress middlewares (`x-orcinus-strip-prefix`, `x-orcinus-middleware`).
-See [USAGE.md](USAGE.md), [DEPLOYMENT.md](DEPLOYMENT.md) and
-[INGRESS.md](INGRESS.md) for the full set.
+Traefik ingress middlewares (`x-orcinus-strip-prefix`, `x-orcinus-middleware`),
+private-registry pull secrets (`x-orcinus-image-pull-secret`) and node placement
+(`x-orcinus-node-selector`, plus Swarm `deploy.placement`). See
+[USAGE.md](USAGE.md), [DEPLOYMENT.md](DEPLOYMENT.md), [INGRESS.md](INGRESS.md) and
+[REGISTRY.md](REGISTRY.md) for the full set.
 
 ---
 

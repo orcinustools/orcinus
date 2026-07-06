@@ -487,6 +487,79 @@ services:
 	}
 }
 
+// TestConvertPlacement: Swarm deploy.placement + x-orcinus-node-selector map to
+// nodeAffinity / topologySpread / nodeSelector.
+func TestConvertPlacement(t *testing.T) {
+	const f = `
+services:
+  web:
+    image: nginx:1.27
+    x-orcinus-node-selector:
+      disktype: ssd
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+          - node.platform.arch == amd64
+          - node.labels.zone != west
+        preferences:
+          - spread: node.labels.zone
+`
+	for _, o := range convertString(t, f) {
+		dep, ok := o.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+		ps := dep.Spec.Template.Spec
+		if ps.NodeSelector["disktype"] != "ssd" {
+			t.Errorf("nodeSelector = %v, want disktype=ssd", ps.NodeSelector)
+		}
+		if ps.Affinity == nil || ps.Affinity.NodeAffinity == nil ||
+			ps.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+			t.Fatal("no required nodeAffinity")
+		}
+		exprs := ps.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
+		got := map[string]string{}
+		for _, e := range exprs {
+			got[e.Key] = string(e.Operator)
+		}
+		if got["node-role.kubernetes.io/control-plane"] != "Exists" {
+			t.Errorf("node.role==manager → %v, want control-plane Exists", got)
+		}
+		if got["kubernetes.io/arch"] != "In" {
+			t.Errorf("arch op = %q, want In", got["kubernetes.io/arch"])
+		}
+		if got["zone"] != "NotIn" {
+			t.Errorf("zone op = %q, want NotIn", got["zone"])
+		}
+		if len(ps.TopologySpreadConstraints) != 1 || ps.TopologySpreadConstraints[0].TopologyKey != "zone" {
+			t.Errorf("topologySpread = %+v, want key zone", ps.TopologySpreadConstraints)
+		}
+		return
+	}
+	t.Fatal("no Deployment generated")
+}
+
+// TestConvertPlacementUnsupported: an unknown constraint key is a hard error.
+func TestConvertPlacementUnsupported(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "docker-compose.yml")
+	if err := os.WriteFile(fp, []byte(`
+services:
+  web:
+    image: nginx:1.27
+    deploy:
+      placement:
+        constraints:
+          - node.id == abc123
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Convert(Options{Files: []string{fp}, ProjectName: "p", Namespace: "d"}); err == nil {
+		t.Fatal("expected error for unsupported constraint key node.id")
+	}
+}
+
 // TestConvertBindMounts: host-path volumes → hostPath, named volumes → PVC.
 func TestConvertBindMounts(t *testing.T) {
 	const f = `
