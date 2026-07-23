@@ -25,10 +25,26 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(
+	// Group related commands so `orcinus --help` reads by topic instead of one
+	// long alphabetical list.
+	root.AddGroup(
+		&cobra.Group{ID: "cluster", Title: "Cluster & Nodes:"},
+		&cobra.Group{ID: "apps", Title: "Deploy & Workloads:"},
+		&cobra.Group{ID: "access", Title: "Access & Integrations:"},
+		&cobra.Group{ID: "system", Title: "System:"},
+	)
+	addGrouped := func(group string, cmds ...*cobra.Command) {
+		for _, c := range cmds {
+			c.GroupID = group
+			root.AddCommand(c)
+		}
+	}
+	addGrouped("cluster",
 		newClusterCmd(),
 		newNodeCmd(),
 		newPluginCmd(),
+	)
+	addGrouped("apps",
 		newDeployCmd(),
 		newRmCmd(),
 		newLsCmd(),
@@ -39,13 +55,24 @@ func NewRootCmd() *cobra.Command {
 		newAutoscaleCmd(),
 		newRollbackCmd(),
 		newSecretCmd(),
-		newKubectlCmd(),
-		newRuntimeCmd(),
-		newAPICmd(),
-		newSkillsCmd(),
-		newMCPCmd(),
-		newVersionCmd(),
 	)
+	addGrouped("access",
+		newKubectlCmd(),
+		newAPICmd(),
+		newMCPCmd(),
+		newSkillsCmd(),
+	)
+	addGrouped("system",
+		newVersionCmd(),
+		newUpdateCmd(),
+	)
+
+	// Hidden passthrough to the embedded runtime — no group (never shown).
+	root.AddCommand(newRuntimeCmd())
+
+	// Put cobra's built-in help/completion commands under System too.
+	root.SetHelpCommandGroupID("system")
+	root.SetCompletionCommandGroupID("system")
 	return root
 }
 
