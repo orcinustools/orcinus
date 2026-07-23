@@ -4,7 +4,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/orcinustools/orcinus/pkg/cli"
@@ -12,8 +11,9 @@ import (
 
 func main() {
 	root := cli.NewRootCmd()
+	// Cobra prints the error (and, for usage errors, the command help) itself;
+	// here we only need to set the non-zero exit code.
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }

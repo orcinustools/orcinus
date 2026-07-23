@@ -12,10 +12,17 @@ import (
 // NewRootCmd builds the top-level orcinus command.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "orcinus",
-		Short:         "Compose-simple. Cluster-strong. Run docker-compose files and Kubernetes manifests natively.",
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Use:   "orcinus",
+		Short: "Compose-simple. Cluster-strong. Run docker-compose files and Kubernetes manifests natively.",
+		// Usage is printed for *usage* errors (missing/extra args, unknown flags)
+		// so the user sees the error and the command's help together. Once arg and
+		// flag validation has passed, PersistentPreRunE silences usage so a later
+		// runtime failure (no cluster, network, …) prints just the error, not the
+		// whole help text. Cobra prints the error itself (SilenceErrors stays off).
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			cmd.SilenceUsage = true
+			return nil
+		},
 	}
 
 	root.AddCommand(
@@ -27,6 +34,7 @@ func NewRootCmd() *cobra.Command {
 		newLsCmd(),
 		newPsCmd(),
 		newLogsCmd(),
+		newDescribeCmd(),
 		newScaleCmd(),
 		newAutoscaleCmd(),
 		newRollbackCmd(),
