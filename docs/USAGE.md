@@ -73,6 +73,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Inspect / label nodes | `orcinus node ls` · `orcinus node label` |
 | Drop to kubectl | `orcinus kubectl <args>` |
 | Serve the REST API | `orcinus api` (see [`API.md`](./API.md)) |
+| Self-update the binary | `orcinus update` |
 
 Commands fall into two groups: **cluster lifecycle** (`init`, `join`, `status`,
 `down`) and **workloads** (`deploy`, `rm`, `ls`, `ps`, `logs`, `scale`,
@@ -645,6 +646,34 @@ orcinus describe service web -n staging
 orcinus describe project myapp
 orcinus describe node node-1
 ```
+
+### 5.20 `orcinus update`
+
+Self-update the orcinus binary in place. It resolves the path of the **currently
+running** binary (following symlinks so the real file is replaced, not a symlink),
+downloads the matching release asset from GitHub, and swaps it in atomically. If
+the install location isn't writable by the current user, it **detects this and
+re-runs the install step with `sudo`** (which prompts for your password).
+
+```
+orcinus update [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--check` | `false` | Only report whether a newer version exists |
+| `--version <v>` | latest | Install a specific version |
+| `--force` | `false` | Reinstall even if already on the target version |
+| `--standalone` | auto | Install the standalone build; auto-detected from the binary name |
+
+```bash
+orcinus update              # update to the latest release, at the current path
+orcinus update --check      # just show current -> available
+orcinus update --version 2.3.0
+```
+
+The standalone build is auto-detected when the running binary is named
+`orcinus-standalone`; pass `--standalone` to force it.
 
 ---
 
