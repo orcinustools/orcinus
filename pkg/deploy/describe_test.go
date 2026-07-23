@@ -5,9 +5,12 @@ import (
 	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func ptrInt32(v int32) *int32 { return &v }
 
 func TestRenderPod(t *testing.T) {
 	pod := &corev1.Pod{
@@ -108,5 +111,94 @@ func TestRenderPodNoEvents(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "Events:") || !strings.Contains(buf.String(), "<none>") {
 		t.Errorf("expected 'Events: <none>', got:\n%s", buf.String())
+	}
+}
+
+func TestRenderDeployment(t *testing.T) {
+	d := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web",
+			Namespace: "default",
+			Labels:    map[string]string{"io.kompose.service": "web"},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: ptrInt32(3),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"io.kompose.service": "web"}},
+			Strategy: appsv1.DeploymentStrategy{Type: appsv1.RollingUpdateDeploymentStrategyType},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"io.kompose.service": "web"}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "web", Image: "nginx:1.27"}}},
+			},
+		},
+		Status: appsv1.DeploymentStatus{
+			Replicas:          3,
+			UpdatedReplicas:   3,
+			AvailableReplicas: 3,
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue, Reason: "MinimumReplicasAvailable"},
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := renderDeployment(&buf, d, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Name:", "web",
+		"Selector:", "io.kompose.service=web",
+		"Replicas:", "3 desired", "3 available",
+		"StrategyType:", "RollingUpdate",
+		"Pod Template:", "nginx:1.27",
+		"Conditions:", "Available", "MinimumReplicasAvailable",
+		"Events:", "<none>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered deployment missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderNode(t *testing.T) {
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-1",
+			Labels: map[string]string{"node-role.kubernetes.io/control-plane": "", "zone": "east"},
+		},
+		Spec: corev1.NodeSpec{
+			Unschedulable: true,
+			Taints:        []corev1.Taint{{Key: "node-role.kubernetes.io/control-plane", Effect: corev1.TaintEffectNoSchedule}},
+		},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue, Reason: "KubeletReady"}},
+			Addresses:  []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.1"}},
+			NodeInfo: corev1.NodeSystemInfo{
+				Architecture:            "arm64",
+				OperatingSystem:         "linux",
+				OSImage:                 "Alpine",
+				KernelVersion:           "6.1",
+				ContainerRuntimeVersion: "containerd://1.7",
+				KubeletVersion:          "v1.31.0",
+			},
+		},
+	}
+	var buf bytes.Buffer
+	if err := renderNode(&buf, node, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Name:", "node-1",
+		"Roles:", "control-plane",
+		"Unschedulable:", "true",
+		"Taints:", "NoSchedule",
+		"Conditions:", "Ready", "KubeletReady",
+		"Addresses:", "10.0.0.1",
+		"System Info:", "arm64", "v1.31.0", "containerd://1.7",
+		"Events:", "<none>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered node missing %q\n---\n%s", want, out)
+		}
 	}
 }

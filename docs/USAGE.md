@@ -63,7 +63,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Remove an app | `orcinus rm <project>` |
 | List apps | `orcinus ls` |
 | List an app's pods | `orcinus ps <project>` |
-| Describe a pod | `orcinus describe pod <name>` |
+| Describe a resource | `orcinus describe <pod\|service\|project\|node> <name>` |
 | Tail logs | `orcinus logs <service>` |
 | Scale a service | `orcinus scale <service> <replicas>` |
 | Autoscale a service | `orcinus autoscale <service> --max N` |
@@ -614,27 +614,37 @@ orcinus node label <node> zone=east disktype=ssd # add/update labels
 orcinus node label <node> --rm disktype          # remove a label
 ```
 
-### 5.19 `orcinus describe pod`
+### 5.19 `orcinus describe`
 
-Show detailed, kubectl-style information about a single pod — metadata, node,
-status, containers (image, state, resources, env, mounts), conditions, volumes,
-QoS class, tolerations, and the pod's **events**.
+Show detailed, kubectl-style information about a resource. Targets follow the
+orcinus vocabulary — a **project** is a whole app, a **service** is one compose
+service (which becomes a Deployment/StatefulSet).
 
 ```
-orcinus describe pod <name> [flags]
+orcinus describe <pod|service|project|node> <name> [flags]
 ```
+
+| Target | Shows | Aliases |
+|---|---|---|
+| `pod <name>` | metadata, node, status, containers (image, state, resources, env, mounts), conditions, volumes, QoS, tolerations, **events** | `pods`, `po` |
+| `service <name>` | the service's workload (Deployment/StatefulSet): replicas, strategy, selector, pod template, conditions, **events** | `services`, `svc` |
+| `project <name>` | aggregate summary of the app: its workloads and pods | `projects`, `proj`, `app` |
+| `node <name>` | roles, labels, taints, conditions, addresses, capacity/allocatable, system info, **events** | `nodes`, `no` |
+
+Common flags:
 
 | Flag | Default | Description |
 |---|---|---|
-| `-n, --namespace <ns>` | `default` | Namespace |
+| `-n, --namespace <ns>` | `default` (`project`: all) | Namespace |
+| `--project <name>` | — | `service` only: further scope to a project |
 | `--kubeconfig <path>` | auto | Target cluster |
 
 ```bash
 orcinus describe pod web-7c9f8-abcde
-orcinus describe pod db-0 -n staging
+orcinus describe service web -n staging
+orcinus describe project myapp
+orcinus describe node node-1
 ```
-
-`pods` and `po` are accepted as aliases for `pod`.
 
 ---
 

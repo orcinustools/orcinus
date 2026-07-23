@@ -9,6 +9,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/orcinustools/orcinus/pkg/compose"
+
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -27,22 +30,24 @@ func (a *Applier) DescribePod(ctx context.Context, name, namespace string, out i
 	if err != nil {
 		return err
 	}
-	events, err := a.podEvents(ctx, pod)
-	if err != nil {
-		// Events are best-effort: a missing events endpoint should not fail describe.
-		events = nil
-	}
+	// Events are best-effort: a missing events endpoint should not fail describe.
+	events, _ := a.objectEvents(ctx, pod.Namespace, string(pod.UID), pod.Name)
 	return renderPod(out, pod, events)
 }
 
-// podEvents fetches the events referencing the given pod, oldest first.
-func (a *Applier) podEvents(ctx context.Context, pod *corev1.Pod) ([]corev1.Event, error) {
-	sel := fields.AndSelectors(
-		fields.OneTermEqualSelector("involvedObject.uid", string(pod.UID)),
-		fields.OneTermEqualSelector("involvedObject.name", pod.Name),
-		fields.OneTermEqualSelector("involvedObject.namespace", pod.Namespace),
-	).String()
-	list, err := a.clientset.CoreV1().Events(pod.Namespace).List(ctx, metav1.ListOptions{FieldSelector: sel})
+// objectEvents fetches the events referencing an object (by uid+name, scoped to
+// namespace when non-empty), oldest first. An empty namespace searches all
+// namespaces — used for cluster-scoped objects like nodes.
+func (a *Applier) objectEvents(ctx context.Context, namespace, uid, name string) ([]corev1.Event, error) {
+	terms := []fields.Selector{
+		fields.OneTermEqualSelector("involvedObject.uid", uid),
+		fields.OneTermEqualSelector("involvedObject.name", name),
+	}
+	if namespace != "" {
+		terms = append(terms, fields.OneTermEqualSelector("involvedObject.namespace", namespace))
+	}
+	sel := fields.AndSelectors(terms...).String()
+	list, err := a.clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: sel})
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +255,304 @@ func describeEvents(w io.Writer, events []corev1.Event) {
 	}
 }
 
+// DescribeService renders a detailed view of the workload (Deployment or
+// StatefulSet) backing a compose service, plus its events (backs
+// `orcinus describe service`). project, when set, further scopes the lookup.
+func (a *Applier) DescribeService(ctx context.Context, service, project, namespace string, out io.Writer) error {
+	if service == "" {
+		return fmt.Errorf("service name is required")
+	}
+	if namespace == "" {
+		namespace = "default"
+	}
+	selector := fmt.Sprintf("%s=%s,%s=%s",
+		compose.LabelManagedBy, compose.ManagedByValue, serviceLabel, service)
+	if project != "" {
+		selector += fmt.Sprintf(",%s=%s", compose.LabelProject, project)
+	}
+	opts := metav1.ListOptions{LabelSelector: selector}
+
+	deps, err := a.clientset.AppsV1().Deployments(namespace).List(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if len(deps.Items) > 0 {
+		for i := range deps.Items {
+			d := &deps.Items[i]
+			events, _ := a.objectEvents(ctx, d.Namespace, string(d.UID), d.Name)
+			if err := renderDeployment(out, d, events); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	sts, err := a.clientset.AppsV1().StatefulSets(namespace).List(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if len(sts.Items) > 0 {
+		for i := range sts.Items {
+			s := &sts.Items[i]
+			events, _ := a.objectEvents(ctx, s.Namespace, string(s.UID), s.Name)
+			if err := renderStatefulSet(out, s, events); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("no Deployment or StatefulSet found for service %q in namespace %q", service, namespace)
+}
+
+// DescribeProject renders an aggregate summary of a whole orcinus project — its
+// workloads and pods (backs `orcinus describe project`). An empty namespace
+// searches across all namespaces.
+func (a *Applier) DescribeProject(ctx context.Context, project, namespace string, out io.Writer) error {
+	if project == "" {
+		return fmt.Errorf("project name is required")
+	}
+	selector := fmt.Sprintf("%s=%s,%s=%s",
+		compose.LabelManagedBy, compose.ManagedByValue, compose.LabelProject, project)
+	opts := metav1.ListOptions{LabelSelector: selector}
+
+	deps, err := a.clientset.AppsV1().Deployments(namespace).List(ctx, opts)
+	if err != nil {
+		return err
+	}
+	sts, err := a.clientset.AppsV1().StatefulSets(namespace).List(ctx, opts)
+	if err != nil {
+		return err
+	}
+	pods, err := a.listPods(ctx, namespace, selector)
+	if err != nil {
+		return err
+	}
+	if len(deps.Items) == 0 && len(sts.Items) == 0 && len(pods) == 0 {
+		return fmt.Errorf("no resources found for project %q", project)
+	}
+
+	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+	p := func(format string, args ...any) { fmt.Fprintf(w, format, args...) }
+	p("Name:\t%s\n", project)
+	if namespace == "" {
+		p("Namespace:\t(all)\n")
+	} else {
+		p("Namespace:\t%s\n", namespace)
+	}
+	p("Managed By:\t%s\n", compose.ManagedByValue)
+
+	p("Workloads:\n")
+	if len(deps.Items) == 0 && len(sts.Items) == 0 {
+		p("  <none>\n")
+	} else {
+		p("  KIND\tSERVICE\tNAME\tREADY\n")
+		for i := range deps.Items {
+			d := &deps.Items[i]
+			p("  Deployment\t%s\t%s\t%d/%d\n", d.Labels[serviceLabel], d.Name, d.Status.ReadyReplicas, replicasOf(d.Spec.Replicas))
+		}
+		for i := range sts.Items {
+			s := &sts.Items[i]
+			p("  StatefulSet\t%s\t%s\t%d/%d\n", s.Labels[serviceLabel], s.Name, s.Status.ReadyReplicas, replicasOf(s.Spec.Replicas))
+		}
+	}
+
+	p("Pods:\n")
+	if len(pods) == 0 {
+		p("  <none>\n")
+	} else {
+		p("  SERVICE\tPOD\tREADY\tSTATUS\tRESTARTS\tNODE\n")
+		for _, pod := range pods {
+			p("  %s\t%s\t%s\t%s\t%d\t%s\n", pod.Service, pod.Name, pod.Ready, pod.Status, pod.Restarts, orNone(pod.Node))
+		}
+	}
+	return w.Flush()
+}
+
+// DescribeNode renders a kubectl-style detailed view of a cluster node, plus its
+// events (backs `orcinus describe node`).
+func (a *Applier) DescribeNode(ctx context.Context, name string, out io.Writer) error {
+	if name == "" {
+		return fmt.Errorf("node name is required")
+	}
+	node, err := a.clientset.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	events, _ := a.objectEvents(ctx, "", string(node.UID), node.Name)
+	return renderNode(out, node, events)
+}
+
+func renderDeployment(out io.Writer, d *appsv1.Deployment, events []corev1.Event) error {
+	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+	p := func(format string, args ...any) { fmt.Fprintf(w, format, args...) }
+	p("Name:\t%s\n", d.Name)
+	p("Namespace:\t%s\n", d.Namespace)
+	p("CreationTimestamp:\t%s\n", d.CreationTimestamp.Time.Format(time.RFC1123Z))
+	p("Labels:\t%s\n", describeMap(d.Labels))
+	p("Annotations:\t%s\n", describeMap(d.Annotations))
+	p("Selector:\t%s\n", metav1.FormatLabelSelector(d.Spec.Selector))
+	p("Replicas:\t%d desired | %d updated | %d total | %d available | %d unavailable\n",
+		replicasOf(d.Spec.Replicas), d.Status.UpdatedReplicas, d.Status.Replicas,
+		d.Status.AvailableReplicas, d.Status.UnavailableReplicas)
+	p("StrategyType:\t%s\n", d.Spec.Strategy.Type)
+	if d.Spec.MinReadySeconds > 0 {
+		p("MinReadySeconds:\t%d\n", d.Spec.MinReadySeconds)
+	}
+	if ru := d.Spec.Strategy.RollingUpdate; ru != nil {
+		mu, ms := "<nil>", "<nil>"
+		if ru.MaxUnavailable != nil {
+			mu = ru.MaxUnavailable.String()
+		}
+		if ru.MaxSurge != nil {
+			ms = ru.MaxSurge.String()
+		}
+		p("RollingUpdateStrategy:\t%s max unavailable, %s max surge\n", mu, ms)
+	}
+	renderPodTemplate(w, d.Spec.Template)
+	renderWorkloadConditions(w, deploymentConditions(d.Status.Conditions))
+	describeEvents(w, events)
+	return w.Flush()
+}
+
+func renderStatefulSet(out io.Writer, s *appsv1.StatefulSet, events []corev1.Event) error {
+	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+	p := func(format string, args ...any) { fmt.Fprintf(w, format, args...) }
+	p("Name:\t%s\n", s.Name)
+	p("Namespace:\t%s\n", s.Namespace)
+	p("CreationTimestamp:\t%s\n", s.CreationTimestamp.Time.Format(time.RFC1123Z))
+	p("Labels:\t%s\n", describeMap(s.Labels))
+	p("Annotations:\t%s\n", describeMap(s.Annotations))
+	p("Selector:\t%s\n", metav1.FormatLabelSelector(s.Spec.Selector))
+	p("Service Name:\t%s\n", s.Spec.ServiceName)
+	p("Replicas:\t%d desired | %d ready | %d current | %d updated\n",
+		replicasOf(s.Spec.Replicas), s.Status.ReadyReplicas, s.Status.CurrentReplicas, s.Status.UpdatedReplicas)
+	p("Update Strategy:\t%s\n", s.Spec.UpdateStrategy.Type)
+	renderPodTemplate(w, s.Spec.Template)
+	describeEvents(w, events)
+	return w.Flush()
+}
+
+func renderPodTemplate(w io.Writer, tpl corev1.PodTemplateSpec) {
+	p := func(format string, args ...any) { fmt.Fprintf(w, format, args...) }
+	p("Pod Template:\n")
+	p("  Labels:\t%s\n", describeMap(tpl.Labels))
+	p("  Containers:\n")
+	for _, c := range tpl.Spec.Containers {
+		describeContainer(w, c, nil)
+	}
+	if len(tpl.Spec.Volumes) > 0 {
+		describeVolumes(w, tpl.Spec.Volumes)
+	}
+}
+
+// workloadCondition is a kind-agnostic view of a workload status condition.
+type workloadCondition struct {
+	Type, Status, Reason string
+}
+
+func deploymentConditions(conds []appsv1.DeploymentCondition) []workloadCondition {
+	out := make([]workloadCondition, 0, len(conds))
+	for _, c := range conds {
+		out = append(out, workloadCondition{Type: string(c.Type), Status: string(c.Status), Reason: c.Reason})
+	}
+	return out
+}
+
+func renderWorkloadConditions(w io.Writer, conds []workloadCondition) {
+	p := func(format string, args ...any) { fmt.Fprintf(w, format, args...) }
+	if len(conds) == 0 {
+		return
+	}
+	p("Conditions:\n")
+	p("  Type\tStatus\tReason\n")
+	for _, c := range conds {
+		p("  %s\t%s\t%s\n", c.Type, c.Status, orNone(c.Reason))
+	}
+}
+
+func renderNode(out io.Writer, node *corev1.Node, events []corev1.Event) error {
+	w := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
+	p := func(format string, args ...any) { fmt.Fprintf(w, format, args...) }
+	p("Name:\t%s\n", node.Name)
+	p("Roles:\t%s\n", nodeRoles(node))
+	p("Labels:\t%s\n", describeMap(node.Labels))
+	p("Annotations:\t%s\n", describeMap(node.Annotations))
+	p("CreationTimestamp:\t%s\n", node.CreationTimestamp.Time.Format(time.RFC1123Z))
+	p("Taints:\t%s\n", nodeTaints(node.Spec.Taints))
+	p("Unschedulable:\t%t\n", node.Spec.Unschedulable)
+
+	p("Conditions:\n")
+	p("  Type\tStatus\tReason\tMessage\n")
+	for _, c := range node.Status.Conditions {
+		p("  %s\t%s\t%s\t%s\n", c.Type, c.Status, orNone(c.Reason), strings.TrimSpace(c.Message))
+	}
+
+	p("Addresses:\n")
+	for _, addr := range node.Status.Addresses {
+		p("  %s:\t%s\n", addr.Type, addr.Address)
+	}
+
+	p("Capacity:\n")
+	for _, k := range sortedResourceNames(node.Status.Capacity) {
+		q := node.Status.Capacity[k]
+		p("  %s:\t%s\n", k, q.String())
+	}
+	p("Allocatable:\n")
+	for _, k := range sortedResourceNames(node.Status.Allocatable) {
+		q := node.Status.Allocatable[k]
+		p("  %s:\t%s\n", k, q.String())
+	}
+
+	ni := node.Status.NodeInfo
+	p("System Info:\n")
+	p("  Architecture:\t%s\n", ni.Architecture)
+	p("  Operating System:\t%s\n", ni.OperatingSystem)
+	p("  OS Image:\t%s\n", ni.OSImage)
+	p("  Kernel Version:\t%s\n", ni.KernelVersion)
+	p("  Container Runtime:\t%s\n", ni.ContainerRuntimeVersion)
+	p("  Kubelet Version:\t%s\n", ni.KubeletVersion)
+
+	describeEvents(w, events)
+	return w.Flush()
+}
+
 // helpers ---------------------------------------------------------------------
+
+func replicasOf(r *int32) int32 {
+	if r == nil {
+		return 0
+	}
+	return *r
+}
+
+func nodeRoles(node *corev1.Node) string {
+	var roles []string
+	for k := range node.Labels {
+		if r := strings.TrimPrefix(k, "node-role.kubernetes.io/"); r != k && r != "" {
+			roles = append(roles, r)
+		}
+	}
+	sort.Strings(roles)
+	if len(roles) == 0 {
+		return "<none>"
+	}
+	return strings.Join(roles, ",")
+}
+
+func nodeTaints(taints []corev1.Taint) string {
+	if len(taints) == 0 {
+		return "<none>"
+	}
+	parts := make([]string, 0, len(taints))
+	for _, t := range taints {
+		s := t.Key
+		if t.Value != "" {
+			s += "=" + t.Value
+		}
+		parts = append(parts, s+":"+string(t.Effect))
+	}
+	return strings.Join(parts, "\n\t")
+}
 
 func containerStatus(statuses []corev1.ContainerStatus, name string) *corev1.ContainerStatus {
 	for i := range statuses {
