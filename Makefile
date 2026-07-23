@@ -9,12 +9,24 @@ LDFLAGS := -X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.GitCom
 
 GORELEASER ?= goreleaser
 
-.PHONY: all build test e2e e2e-live e2e-tls e2e-standalone orcinus-standalone runtime-asset tidy lint clean dist snapshot release-check
+.PHONY: all build build-buildah test e2e e2e-live e2e-tls e2e-standalone orcinus-standalone runtime-asset tidy lint clean dist snapshot release-check
 
 all: build
 
 build:
 	CGO_ENABLED=0 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/orcinus
+
+# Build tags for the buildah image-build backend. btrfs/devicemapper graph
+# drivers are excluded (they need system headers); openpgp avoids gpgme/cgo.
+BUILDAH_TAGS := orcinus_buildah containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devicemapper
+
+# The Linux orcinus binary WITH the buildah image-build backend compiled in, so
+# `orcinus image build` can run Dockerfile RUN / multi-stage steps daemonlessly.
+# Requires CGO (gcc) and Linux — buildah's storage/reexec need cgo at runtime,
+# so this cannot fold into the lean CGO_ENABLED=0 `build` target. Runtime needs
+# an OCI runtime (crun/runc); `--isolation chroot` needs no extra backend.
+build-buildah:
+	CGO_ENABLED=1 $(GO) build -ldflags "$(LDFLAGS)" -tags "$(BUILDAH_TAGS)" -o bin/orcinus-buildah ./cmd/orcinus
 
 # Unit tests + the offline (conversion) e2e test.
 test:
