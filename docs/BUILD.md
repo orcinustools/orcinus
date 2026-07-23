@@ -83,12 +83,25 @@ services:
 Buildah is imported as a Go library and compiled in only with the
 `orcinus_buildah` build tag on Linux, keeping the default cross-platform,
 CGO-free binary lean (the same opt-in pattern as the embedded standalone
-runtime). On a Linux build host:
+runtime). It **cannot** be folded into the default `orcinus` binary: buildah's
+storage/reexec machinery needs `CGO_ENABLED=1` to work at runtime (a CGO-free
+build compiles but fails with `parsing PID ""`), whereas the default binary is
+deliberately `CGO_ENABLED=0` and static. So it ships as a separate Linux flavor,
+`orcinus-buildah` (like `orcinus-standalone`).
+
+Get it from a release archive (`orcinus-buildah_<ver>_linux_amd64.tar.gz`) or
+build it on a Linux host:
 
 ```bash
-go get go.podman.io/buildah@latest
-go mod tidy -tags orcinus_buildah
-go build -tags orcinus_buildah ./cmd/orcinus
+make build-buildah        # → bin/orcinus-buildah (CGO=1, linux/amd64)
+```
+
+which is shorthand for:
+
+```bash
+CGO_ENABLED=1 go build \
+  -tags "orcinus_buildah containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devicemapper" \
+  -o bin/orcinus-buildah ./cmd/orcinus
 ```
 
 The binary is self-contained: it generates a docker-like containers

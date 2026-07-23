@@ -44,6 +44,29 @@ builds:
       - -X github.com/orcinustools/orcinus/pkg/version.Version={{ .Version }}
       - -X github.com/orcinustools/orcinus/pkg/version.GitCommit={{ .ShortCommit }}
 
+  # Buildah flavor: the buildah image-build backend compiled in so
+  # `orcinus image build` can run Dockerfile RUN / multi-stage steps
+  # daemonlessly. linux/amd64 only and CGO-enabled — buildah's storage/reexec
+  # need cgo, so this cannot be the lean cross-platform binary.
+  - id: orcinus-buildah
+    main: ./cmd/orcinus
+    binary: orcinus-buildah
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    tags:
+      - orcinus_buildah
+      - containers_image_openpgp
+      - exclude_graphdriver_btrfs
+      - exclude_graphdriver_devicemapper
+    ldflags:
+      - -s -w
+      - -X github.com/orcinustools/orcinus/pkg/version.Version={{ .Version }}
+      - -X github.com/orcinustools/orcinus/pkg/version.GitCommit={{ .ShortCommit }}
+
 archives:
   - id: default
     ids: [orcinus]
@@ -57,6 +80,14 @@ archives:
     ids: [orcinus-standalone]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}-standalone_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE
+  - id: buildah
+    ids: [orcinus-buildah]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}-buildah_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
       - LICENSE
