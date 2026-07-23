@@ -353,7 +353,46 @@ keys are in [Appendix B](#appendix-b--x-orcinus--extension-reference). Examples:
 [`examples/deploy-strategies`](../examples/deploy-strategies/orcinus.yml),
 [`examples/rollout`](../examples/rollout/orcinus.yml).
 
-### 5.6 `orcinus rm`
+### 5.6 `orcinus image`
+
+Build and manage **OCI / Docker-compatible images without a Docker daemon**.
+
+```
+orcinus image build [CONTEXT] [flags]   # (also: orcinus build — top-level alias)
+orcinus image inspect <oci-dir|tar>
+orcinus image push    <oci-dir|tar> <reference>
+orcinus image ls      <oci-dir|tar>
+```
+
+`build` accepts the same inputs as `docker build` (a `Dockerfile`) and
+`docker compose build` (the `build:` blocks of a compose file):
+
+```bash
+# docker build style: one context → OCI layout dir + docker-load tar
+orcinus image build ./app -t myapp:v1 -o ./out/oci --tar myapp.tar
+orcinus build ./app -t myapp:v1 -o ./out/oci            # same, shorter
+
+# docker compose build style: build every service that declares build:
+orcinus build -f orcinus.yml --tar images.tar
+orcinus build -f orcinus.yml web api        # only these services
+
+# work with the produced artifact — no daemon
+orcinus image inspect ./out/oci
+orcinus image push ./out/oci registry.example.com/myapp:v1
+```
+
+The default **native** engine assembles the image in-process with no runtime of
+any kind (so it can build linux images from macOS), covering
+`FROM`/`COPY`/`ADD`/`ENV`/`WORKDIR`/`CMD`/`ENTRYPOINT`/`EXPOSE`/`LABEL`/`USER`
+and friends. Dockerfiles that use `RUN` or multi-stage use the **buildah**
+engine (daemonless, Linux, opt-in build tag); `--isolation chroot` runs `RUN`
+with no OCI runtime or network backend required. Outputs: `-o` (OCI layout dir),
+`--tar` (`docker load`-able), `--push` (registry, Docker credentials).
+
+**Full guide → [`BUILD.md`](./BUILD.md)** (engines, isolation modes, compose
+keys, enabling buildah, and the no-runtime explanation).
+
+### 5.7 `orcinus rm`
 
 Remove all resources of a project.
 
@@ -370,7 +409,7 @@ orcinus rm <project> [flags]
 orcinus rm myapp
 ```
 
-### 5.7 `orcinus ls`
+### 5.8 `orcinus ls`
 
 List orcinus-managed projects with workload counts and namespaces.
 
@@ -391,7 +430,7 @@ orcinus ls -n staging
 
 Output columns: `PROJECT  WORKLOADS  NAMESPACES`.
 
-### 5.8 `orcinus ps`
+### 5.9 `orcinus ps`
 
 List the pods of a project.
 
@@ -410,7 +449,7 @@ orcinus ps myapp
 
 Output columns: `SERVICE  POD  READY  STATUS  RESTARTS  NODE`.
 
-### 5.9 `orcinus logs`
+### 5.10 `orcinus logs`
 
 Stream logs of a service. If several pods back the service, streams run
 concurrently, each line prefixed with the pod name.
@@ -431,7 +470,7 @@ orcinus logs web
 orcinus logs web -f --project myapp
 ```
 
-### 5.10 `orcinus scale`
+### 5.11 `orcinus scale`
 
 Set the replica count of a service's Deployment or StatefulSet.
 
@@ -451,7 +490,7 @@ orcinus scale db 1 -n staging  # in the "staging" namespace
 
 Output: `scaled Deployment/web to 3 replicas`.
 
-### 5.11 `orcinus autoscale`
+### 5.12 `orcinus autoscale`
 
 Create or update a **HorizontalPodAutoscaler** (HPA) for a service. Orcinus
 clusters ship with a working metrics-server (auto-enabled by `cluster init`), so
@@ -495,7 +534,7 @@ services:
     x-orcinus-autoscale-cpu: 70
 ```
 
-### 5.12 `orcinus rollback`
+### 5.13 `orcinus rollback`
 
 Roll a service back to its previous revision. Works for a Deployment, StatefulSet,
 or Argo Rollout.
@@ -513,7 +552,7 @@ orcinus rollback <service> [flags]
 orcinus rollback web            # revert web to the prior revision
 ```
 
-### 5.13 `orcinus secret`
+### 5.14 `orcinus secret`
 
 Manage Kubernetes Secrets — including bring-your-own TLS certs.
 
@@ -542,7 +581,7 @@ orcinus secret create-tls mysite-cert --cert fullchain.pem --key privkey.pem
 orcinus secret create-registry regcred --server ghcr.io -u me -p "$GHCR_PAT"
 ```
 
-### 5.14 `orcinus plugin`
+### 5.15 `orcinus plugin`
 
 Manage cluster add-ons (see [`PLUGINS.md`](./PLUGINS.md)).
 
@@ -575,7 +614,7 @@ orcinus plugin install storage --provider nfs --nfs-server 10.0.0.9 --nfs-path /
 
 For fault-tolerant storage across nodes, see [`HA-STORAGE.md`](./HA-STORAGE.md).
 
-### 5.15 `orcinus kubectl`
+### 5.16 `orcinus kubectl`
 
 Escape hatch: run `kubectl` against the orcinus cluster. Uses your local `kubectl`
 (with the resolved kubeconfig) if installed, otherwise the cluster container's
@@ -587,7 +626,7 @@ orcinus kubectl describe deploy web
 orcinus kubectl logs deploy/web
 ```
 
-### 5.16 `orcinus version`
+### 5.17 `orcinus version`
 
 Print the orcinus version, git commit, and the embedded conversion-engine ref.
 
@@ -595,7 +634,7 @@ Print the orcinus version, git commit, and the embedded conversion-engine ref.
 orcinus version
 ```
 
-### 5.17 `orcinus completion`
+### 5.18 `orcinus completion`
 
 Generate a shell completion script (bash, zsh, fish, powershell).
 
@@ -604,7 +643,7 @@ orcinus completion bash > /etc/bash_completion.d/orcinus
 source <(orcinus completion zsh)
 ```
 
-### 5.18 `orcinus node`
+### 5.19 `orcinus node`
 
 Inspect and label cluster nodes — node labels back placement constraints
 ([§8](#8-placement--node-constraints)), like `docker node update --label-add`.
@@ -615,7 +654,7 @@ orcinus node label <node> zone=east disktype=ssd # add/update labels
 orcinus node label <node> --rm disktype          # remove a label
 ```
 
-### 5.19 `orcinus describe`
+### 5.20 `orcinus describe`
 
 Show detailed, kubectl-style information about a resource. Targets follow the
 orcinus vocabulary — a **project** is a whole app, a **service** is one compose
@@ -647,7 +686,7 @@ orcinus describe project myapp
 orcinus describe node node-1
 ```
 
-### 5.20 `orcinus update`
+### 5.21 `orcinus update`
 
 Self-update the orcinus binary in place. It resolves the path of the **currently
 running** binary (following symlinks so the real file is replaced, not a symlink),

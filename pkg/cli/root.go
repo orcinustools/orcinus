@@ -45,6 +45,8 @@ func NewRootCmd() *cobra.Command {
 		newPluginCmd(),
 	)
 	addGrouped("apps",
+		newImageCmd(),
+		newBuildCmd(), // top-level shortcut for `orcinus image build`
 		newDeployCmd(),
 		newRmCmd(),
 		newLsCmd(),
