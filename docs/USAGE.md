@@ -63,6 +63,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Remove an app | `orcinus rm <project>` |
 | List apps | `orcinus ls` |
 | List an app's pods | `orcinus ps <project>` |
+| Describe a pod | `orcinus describe pod <name>` |
 | Tail logs | `orcinus logs <service>` |
 | Scale a service | `orcinus scale <service> <replicas>` |
 | Autoscale a service | `orcinus autoscale <service> --max N` |
@@ -612,6 +613,28 @@ orcinus node ls                                  # NAME, STATUS, ROLES, VERSION
 orcinus node label <node> zone=east disktype=ssd # add/update labels
 orcinus node label <node> --rm disktype          # remove a label
 ```
+
+### 5.19 `orcinus describe pod`
+
+Show detailed, kubectl-style information about a single pod — metadata, node,
+status, containers (image, state, resources, env, mounts), conditions, volumes,
+QoS class, tolerations, and the pod's **events**.
+
+```
+orcinus describe pod <name> [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-n, --namespace <ns>` | `default` | Namespace |
+| `--kubeconfig <path>` | auto | Target cluster |
+
+```bash
+orcinus describe pod web-7c9f8-abcde
+orcinus describe pod db-0 -n staging
+```
+
+`pods` and `po` are accepted as aliases for `pod`.
 
 ---
 
