@@ -211,9 +211,44 @@ publishes maintained multi-arch (amd64/arm64) cloud images — swap the one line
 with a `cloudInitNoCloud` volume — an explicit `users:` block works the same on
 every distro, so you don't need each image's default account.
 
+**Reaching a VM from outside (SSH, public IP).** What you can publish depends on
+the cluster runtime:
+
+| `cluster init --runtime` | Host ports published | External SSH |
+|---|---|---|
+| `docker` (default) | API `6443` + `--http-port`/`--https-port` | **no** — a NodePort/LoadBalancer binds inside the cluster container; use `orcinus kubectl port-forward svc/<vm> 2222:22 --address 0.0.0.0` |
+| `standalone` | none needed — k3s runs on the host, so the node IP *is* the host IP | **yes** — NodePort or `type: LoadBalancer` (k3s ServiceLB) lands on the public IP |
+
+```bash
+orcinus cluster init --runtime standalone --http-port 80 --https-port 443 --advertise <public-ip>
+orcinus secret create vm-ssh --from-literal orcinus="$(cat ~/.ssh/id_ed25519.pub)"
+```
+
+Reference the Secret from the VM and KubeVirt injects the key — rotate by updating
+the Secret, not the VM:
+
+```yaml
+      accessCredentials:
+        - sshPublicKey:
+            source:
+              secret:
+                secretName: vm-ssh
+            propagationMethod:
+              noCloud: {}                  # → the image's default user (ubuntu, fedora, …)
+              # qemuGuestAgent:            # → named users; needs qemu-guest-agent in the guest
+              #   users: [orcinus]
+```
+
+Then `ssh -p 2222 ubuntu@<public-ip>` through a `LoadBalancer` Service
+(`port: 2222` → `targetPort: 22`; the host's own sshd usually owns 22). Set
+`ssh_pwauth: false` in cloud-init so a public VM is key-only. HTTP works on either
+runtime — put a `Service` + `Ingress` in front of the VM and Traefik serves it on
+the published 80/443. Full file: [`examples/kubevirt/ssh-public.yml`](../examples/kubevirt/ssh-public.yml).
+
 Console/VNC access needs upstream `virtctl` (`virtctl console ubuntu`), which is
 also how you start/stop a `Halted` VM (`virtctl start ubuntu`); without it, patch
-`spec.runStrategy`.
+`spec.runStrategy`. `virtctl ssh ubuntu@<vm>` tunnels over the API server, so it
+needs no published port at all.
 
 Runnable: [`examples/kubevirt`](../examples/kubevirt/orcinus.yml) — a container +
 Ubuntu/Fedora VMs on one network, a six-distro catalog

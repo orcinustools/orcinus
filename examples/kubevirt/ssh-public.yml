@@ -1,0 +1,158 @@
+# Reaching a VM from outside the cluster: SSH by key, and HTTP over the ingress.
+#
+# ## First: what your cluster runtime can publish
+#
+# | `cluster init --runtime` | Host ports it publishes | External SSH? |
+# |---|---|---|
+# | `docker` (default) | API 6443 + `--http-port`/`--https-port` only | no — a NodePort/LoadBalancer binds *inside* the container, so use the port-forward below, or the standalone runtime |
+# | `standalone` | none needed — k3s runs on the host, so the node IP *is* the host IP | yes — NodePort and LoadBalancer land straight on the public IP |
+#
+# So on a public server, create the cluster natively:
+#
+#   orcinus cluster init --runtime standalone --http-port 80 --https-port 443 \
+#     --advertise <public-ip>
+#
+# ## 1) Your SSH key in a Secret (never hardcode it in the manifest)
+#
+#   orcinus secret create vm-ssh --from-literal orcinus="$(cat ~/.ssh/id_ed25519.pub)"
+#
+# KubeVirt injects it via `accessCredentials` below. With `noCloud` propagation the
+# key lands on the **image's default user** — `ubuntu` for this image (`fedora`,
+# `debian`, `cloud-user`, … for the others). To target a user you created yourself,
+# use `qemuGuestAgent: { users: [orcinus] }` instead (needs qemu-guest-agent in the
+# guest — cloud-init installs it below).
+#
+# ## 2) Deploy and connect
+#
+#   orcinus deploy -f ssh-public.yml
+#
+#   standalone:  ssh -p 2222 ubuntu@<public-ip>          # via the LoadBalancer
+#   docker:      orcinus kubectl port-forward svc/vm-public-ssh 2222:22 --address 0.0.0.0
+#                ssh -p 2222 ubuntu@<host>
+#   either:      virtctl ssh ubuntu@vm-public            # tunnels over the API server
+#
+# Port 2222, not 22: on the standalone runtime the host's own sshd already owns 22.
+# Open the port in your cloud firewall / security group too.
+#
+# ## Security, because this is now on the internet
+#
+# - Password login is off (`ssh_pwauth: false`) — keys only. Do **not** reuse the
+#   orcinus/orcinus password from the other examples on a public host.
+# - This VM boots from a containerDisk, so guest changes (including anything
+#   cloud-init writes) are gone on restart. Use `cdi-datavolume.yml` for a
+#   persistent root disk.
+
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm-public
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: vm-public
+    spec:
+      # KubeVirt reads the public key(s) out of the Secret and injects them —
+      # rotate the key by updating the Secret, not the VM.
+      accessCredentials:
+        - sshPublicKey:
+            source:
+              secret:
+                secretName: vm-ssh
+            propagationMethod:
+              noCloud: {}          # → the image's default user (ubuntu)
+              # qemuGuestAgent:    # → named users, no reboot needed
+              #   users: [orcinus]
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1Gi
+        devices:
+          rng: {}
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/ubuntu:24.04
+        - name: cloudinit
+          cloudInitNoCloud:            # required for noCloud key propagation
+            userData: |
+              #cloud-config
+              hostname: vm-public
+              ssh_pwauth: false        # keys only
+              disable_root: true
+              packages:
+                - qemu-guest-agent     # for qemuGuestAgent propagation + VM status
+                - nginx
+              runcmd:
+                - [ systemctl, enable, --now, qemu-guest-agent ]
+                - [ systemctl, enable, --now, nginx ]
+              write_files:
+                - path: /var/www/html/index.html
+                  content: hello from a VM behind the orcinus ingress
+
+---
+# SSH: LoadBalancer → k3s ServiceLB binds host port 2222 on the node. Reachable
+# from outside on the standalone runtime; on the docker runtime it stays inside
+# the container, so use `kubectl port-forward` instead.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vm-public-ssh
+spec:
+  type: LoadBalancer
+  selector:
+    app: vm-public
+  ports:
+    - name: ssh
+      port: 2222
+      targetPort: 22
+
+---
+# HTTP: a ClusterIP Service + Ingress. This is the path that works on **both**
+# runtimes, because `--http-port`/`--https-port` publish Traefik's 80/443.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vm-public
+spec:
+  selector:
+    app: vm-public
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vm-public
+  # For HTTPS, install cert-manager and add:
+  #   cert-manager.io/cluster-issuer: letsencrypt
+  # plus a tls: block — same as ../ingress-tls/orcinus.yml.
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: vm.example.com               # point this at your public IP
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vm-public
+                port:
+                  number: 80
