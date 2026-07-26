@@ -1,0 +1,79 @@
+# VMs written as **compose services** — the same file style as every other orcinus
+# app, no KubeVirt YAML. `x-orcinus-vm: true` is the whole difference: the service
+# becomes a VirtualMachine instead of a Deployment, and its `image:` is the distro
+# disk it boots.
+#
+# Compare with `orcinus.yml` in this folder, which builds the same thing out of raw
+# KubeVirt manifests. Both are valid input — compose is shorter, raw manifests give
+# you every KubeVirt knob.
+#
+# Prerequisite:
+#
+#   orcinus plugin install kubevirt [--emulation]   # --emulation if no /dev/kvm
+#
+# Then:
+#
+#   orcinus deploy -f vm-compose.yml --dry-run     # see the generated VirtualMachine
+#   orcinus deploy -f vm-compose.yml
+#   orcinus kubectl get vm,vmi
+#   orcinus kubectl exec deploy/toolbox -- nc -zv ubuntu 22    # container → VM
+#
+# What maps to what:
+#
+#   image:                     → the boot disk (containerDisk, pulled like any image)
+#   ports:                     → a Service, exactly as for a container
+#   deploy.resources.limits    → domain.cpu.cores + domain.memory.guest
+#   x-orcinus-vm: halted       → defined but not started (see distros.yml)
+#   x-orcinus-vm-cloud-init    → cloud-init user data
+#   x-orcinus-expose/-host/-tls, x-orcinus-node-selector, deploy.placement → as usual
+#
+# Guest writes are lost on restart (ephemeral containerDisk). For a persistent root
+# disk use x-orcinus-vm-disk — see `vm-compose-web.yml`.
+
+services:
+  # An ordinary container, to show both kinds live in one file and one network.
+  toolbox:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+
+  ubuntu:
+    image: quay.io/containerdisks/ubuntu:24.04
+    x-orcinus-vm: true
+    ports: ["22"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    x-orcinus-vm-cloud-init: |
+      #cloud-config
+      hostname: ubuntu
+      users:
+        - name: orcinus
+          groups: [sudo, wheel]
+          sudo: ALL=(ALL) NOPASSWD:ALL
+          shell: /bin/bash
+          lock_passwd: false
+          plain_text_passwd: orcinus
+      ssh_pwauth: true
+
+  fedora:
+    image: quay.io/containerdisks/fedora:44
+    x-orcinus-vm: true
+    ports: ["22"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+    x-orcinus-vm-cloud-init: |
+      #cloud-config
+      hostname: fedora
+      users:
+        - name: orcinus
+          groups: [sudo, wheel]
+          sudo: ALL=(ALL) NOPASSWD:ALL
+          shell: /bin/bash
+          lock_passwd: false
+          plain_text_passwd: orcinus
+      ssh_pwauth: true

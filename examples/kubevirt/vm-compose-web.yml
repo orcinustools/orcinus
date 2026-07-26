@@ -1,0 +1,65 @@
+# A VM as a compose service, the production-shaped version: **persistent disk**,
+# **key-only SSH**, and **published over the ingress** — all from x-orcinus-* keys.
+#
+# Prerequisites:
+#
+#   orcinus plugin install kubevirt --cdi [--emulation]   # --cdi: the disk importer
+#   orcinus secret create vm-ssh --from-literal orcinus="$(cat ~/.ssh/id_ed25519.pub)"
+#
+# Then:
+#
+#   orcinus deploy -f vm-compose-web.yml
+#   orcinus kubectl get dv,vmi            # image import → VM boot
+#   curl http://vm.example.com            # nginx inside the VM, through Traefik
+#
+# The three keys that do the work:
+#
+#   x-orcinus-vm-disk: 10Gi        → a CDI DataVolume imports the image into a PVC
+#                                    once, so guest changes survive a restart
+#   x-orcinus-vm-ssh-secret        → KubeVirt injects the public key from the Secret
+#   x-orcinus-vm-ssh-users         → which guest users get it (needs qemu-guest-agent,
+#                                    installed by cloud-init below). Drop this key to
+#                                    put the key on the image's default user instead.
+#
+# `x-orcinus-expose: ingress` + `x-orcinus-host` behave exactly as they do for a
+# container — the Service and Ingress are generated the same way, they just point at
+# a VM. Add `x-orcinus-tls: letsencrypt` (and cert-manager) for HTTPS.
+#
+# Note the *shape* of this: nothing here is VM-specific except the x-orcinus-vm*
+# keys. The same file with those keys removed deploys nginx as a container.
+
+services:
+  vmweb:
+    image: quay.io/containerdisks/ubuntu:24.04
+    x-orcinus-vm: true
+    x-orcinus-vm-disk: 10Gi
+    x-orcinus-vm-ssh-secret: vm-ssh
+    x-orcinus-vm-ssh-users: [orcinus]
+    ports: ["80", "22"]
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    x-orcinus-expose: ingress
+    x-orcinus-host: vm.example.com
+    # x-orcinus-tls: letsencrypt        # HTTPS (needs the cert-manager plugin)
+    x-orcinus-vm-cloud-init: |
+      #cloud-config
+      hostname: vmweb
+      ssh_pwauth: false                 # keys only — this VM is on the ingress
+      disable_root: true
+      users:
+        - name: orcinus
+          groups: [sudo]
+          sudo: ALL=(ALL) NOPASSWD:ALL
+          shell: /bin/bash
+      packages:
+        - qemu-guest-agent               # required for ssh-users propagation
+        - nginx
+      runcmd:
+        - [ systemctl, enable, --now, qemu-guest-agent ]
+        - [ systemctl, enable, --now, nginx ]
+      write_files:
+        - path: /var/www/html/index.html
+          content: hello from a VM deployed with compose

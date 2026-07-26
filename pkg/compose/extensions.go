@@ -42,6 +42,13 @@ const (
 	extMaxUnavailable = "x-orcinus-max-unavailable" // rolling: e.g. 0 or 25%
 
 	extRollout = "x-orcinus-rollout" // canary | bluegreen (Argo Rollout)
+
+	// KubeVirt: turn a service into a virtual machine instead of a container.
+	extVM           = "x-orcinus-vm"            // true | always | halted
+	extVMDisk       = "x-orcinus-vm-disk"       // PVC size (e.g. 10Gi) → CDI DataVolume (persistent root disk)
+	extVMCloudInit  = "x-orcinus-vm-cloud-init" // inline cloud-config user data
+	extVMSSHSecret  = "x-orcinus-vm-ssh-secret" // Secret holding SSH public key(s)
+	extVMGuestAgent = "x-orcinus-vm-ssh-users"  // propagate the SSH key to these guest users (needs qemu-guest-agent)
 )
 
 // kompose native label keys we translate onto.
@@ -97,6 +104,17 @@ type placementCfg struct {
 	spreadKeys  []string
 }
 
+// vmCfg holds the KubeVirt hints for a service that is a virtual machine
+// (x-orcinus-vm). The image, CPU and memory come from the ordinary compose keys
+// (`image:`, `deploy.resources.*`), read off the generated workload.
+type vmCfg struct {
+	RunStrategy string   // Always | Halted
+	DiskSize    string   // non-empty → persistent root disk via a CDI DataVolume
+	CloudInit   string   // cloud-config user data
+	SSHSecret   string   // Secret with SSH public key(s), injected by KubeVirt
+	SSHUsers    []string // guest users to propagate the key to (qemu-guest-agent)
+}
+
 // autoscaleCfg holds HPA hints for a service.
 type autoscaleCfg struct {
 	Min, Max, CPU, Memory int
@@ -138,6 +156,8 @@ type preprocessed struct {
 	// gpu maps a service name to extended-resource limits (e.g. nvidia.com/gpu: "1")
 	// from deploy.resources.reservations.generic_resources.
 	gpu map[string]map[string]string
+	// vm maps a service name to KubeVirt VirtualMachine hints (x-orcinus-vm).
+	vm map[string]vmCfg
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
@@ -161,6 +181,7 @@ func injectKomposeLabels(composeBytes []byte, baseDir string, activeProfiles []s
 		placement:        map[string]placementCfg{},
 		nodeSelector:     map[string]map[string]string{},
 		gpu:              map[string]map[string]string{},
+		vm:               map[string]vmCfg{},
 	}
 
 	// Resolve relative file paths in top-level configs:/secrets: to absolute, so
@@ -339,6 +360,21 @@ func injectKomposeLabels(composeBytes []byte, baseDir string, activeProfiles []s
 				return nil, fmt.Errorf("service %q: invalid %s=%q (want canary|bluegreen)", name, extRollout, v)
 			}
 			out.rollout[name] = v
+		}
+
+		// KubeVirt: the service becomes a VirtualMachine, not a Deployment.
+		cfg, err := parseVM(name, svc)
+		if err != nil {
+			return nil, err
+		}
+		if cfg != nil {
+			if _, isRollout := out.rollout[name]; isRollout {
+				return nil, fmt.Errorf("service %q: %s and %s are mutually exclusive (a VM is not a Deployment)", name, extVM, extRollout)
+			}
+			if ac, ok := out.autoscale[name]; ok && ac.Max > 0 {
+				return nil, fmt.Errorf("service %q: %s cannot be autoscaled (a VM is a single instance)", name, extVM)
+			}
+			out.vm[name] = *cfg
 		}
 
 		if len(labels) > 0 {
@@ -730,6 +766,42 @@ func stringExt(v interface{}) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// parseVM reads the x-orcinus-vm* keys off a service, returning nil when the
+// service is an ordinary container. The image, CPU and memory are deliberately
+// not read here — they come from the standard compose keys (`image:`,
+// `deploy.resources.*`) via the workload the fork generates.
+func parseVM(name string, svc map[string]interface{}) (*vmCfg, error) {
+	raw, ok := stringExt(svc[extVM])
+	if !ok {
+		return nil, nil
+	}
+	var cfg vmCfg
+	switch strings.ToLower(raw) {
+	case "false":
+		return nil, nil
+	case "true", "always":
+		cfg.RunStrategy = "Always"
+	case "halted", "stopped":
+		cfg.RunStrategy = "Halted"
+	default:
+		return nil, fmt.Errorf("service %q: invalid %s=%q (want true|halted)", name, extVM, raw)
+	}
+	if v, ok := stringExt(svc[extVMDisk]); ok {
+		cfg.DiskSize = v
+	}
+	if v, ok := stringExt(svc[extVMCloudInit]); ok {
+		cfg.CloudInit = v
+	}
+	if v, ok := stringExt(svc[extVMSSHSecret]); ok {
+		cfg.SSHSecret = v
+	}
+	cfg.SSHUsers = stringSliceExt(svc[extVMGuestAgent])
+	if len(cfg.SSHUsers) > 0 && cfg.SSHSecret == "" {
+		return nil, fmt.Errorf("service %q: %s needs %s to know which Secret holds the key", name, extVMGuestAgent, extVMSSHSecret)
+	}
+	return &cfg, nil
 }
 
 // parseUpdateConfig maps the standard compose `deploy.update_config` onto the

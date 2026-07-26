@@ -146,8 +146,41 @@ orcinus plugin install kubevirt --cdi         # + CDI, for disk images from URLs
   `orcinus kubectl -n kubevirt get kubevirt kubevirt -o jsonpath='{.status.phase}'`
   (`Deployed` when the control plane is up).
 
-A VM is a plain manifest, so `orcinus deploy -f` applies it — and a compose
-service and a VM can live in the same file:
+**A VM as a compose service.** `x-orcinus-vm: true` makes orcinus emit a
+`VirtualMachine` instead of a Deployment — no KubeVirt YAML, and the rest of the
+service (ports, resources, ingress keys) works as usual:
+
+```yaml
+services:
+  ubuntu:
+    image: quay.io/containerdisks/ubuntu:24.04   # the boot disk
+    x-orcinus-vm: true                           # halted = defined, not started
+    ports: ["22"]                                # → a Service, as for a container
+    deploy:
+      resources:
+        limits:
+          cpus: "2"                              # → domain.cpu.cores
+          memory: 2G                             # → domain.memory.guest
+    x-orcinus-vm-disk: 10Gi                      # persistent root disk (CDI); omit = ephemeral
+    x-orcinus-vm-ssh-secret: vm-ssh              # inject a public key from a Secret
+    x-orcinus-vm-cloud-init: |
+      #cloud-config
+      hostname: ubuntu
+```
+
+Because the VM keeps the service's pod labels, the generated `Service` (and
+`Ingress`, via `x-orcinus-expose: ingress` + `x-orcinus-host`) points at the VM
+exactly as it would at a container — containers and VMs are addressed the same way.
+`deploy.placement` and `x-orcinus-node-selector` carry over to the VM too. A VM
+can't be autoscaled or turned into a Rollout, and `replicas` must stay 1; orcinus
+rejects those combinations instead of silently dropping them. `orcinus deploy`
+refuses to apply VMs when the `kubevirt` plugin isn't installed, telling you the
+command to run (it is not auto-installed, because whether the nodes need
+`--emulation` can't be guessed).
+
+**Or write the KubeVirt manifest yourself** — `orcinus deploy -f` applies it, and a
+compose service and a VM can live in the same file. Use this when you want a knob
+the compose sugar doesn't expose:
 
 ```yaml
 # vm.yml
@@ -250,11 +283,17 @@ also how you start/stop a `Halted` VM (`virtctl start ubuntu`); without it, patc
 `spec.runStrategy`. `virtctl ssh ubuntu@<vm>` tunnels over the API server, so it
 needs no published port at all.
 
-Runnable: [`examples/kubevirt`](../examples/kubevirt/orcinus.yml) — a container +
-Ubuntu/Fedora VMs on one network, a six-distro catalog
-([`distros.yml`](../examples/kubevirt/distros.yml)), and a persistent-disk VM
-serving HTTP through a Service
-([`cdi-datavolume.yml`](../examples/kubevirt/cdi-datavolume.yml)).
+Runnable examples in [`examples/kubevirt`](../examples/kubevirt/) — the same VM
+both ways:
+
+| File | Style |
+|---|---|
+| [`vm-compose.yml`](../examples/kubevirt/vm-compose.yml) | **compose** — a container + Ubuntu/Fedora VMs from `x-orcinus-vm` |
+| [`vm-compose-web.yml`](../examples/kubevirt/vm-compose-web.yml) | **compose** — persistent disk + key-only SSH + published over the ingress |
+| [`orcinus.yml`](../examples/kubevirt/orcinus.yml) | raw manifests — a container + two VMs, each behind a Service |
+| [`distros.yml`](../examples/kubevirt/distros.yml) | raw manifests — six-distro catalog, all `Halted` |
+| [`cdi-datavolume.yml`](../examples/kubevirt/cdi-datavolume.yml) | raw manifests — CDI `DataVolume` root disk, nginx served via Service |
+| [`ssh-public.yml`](../examples/kubevirt/ssh-public.yml) | raw manifests — `accessCredentials`, LoadBalancer SSH, Ingress |
 
 `orcinus plugin remove kubevirt` deletes the `KubeVirt` CR first, then the
 operator — give the CR's finalizer a moment before re-installing.

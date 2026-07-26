@@ -86,6 +86,7 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	placements := map[string]placementCfg{}
 	nodeSelectors := map[string]map[string]string{}
 	gpus := map[string]map[string]string{}
+	vmCfgs := map[string]vmCfg{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
@@ -129,6 +130,9 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, g := range pp.gpu {
 			gpus[svc] = g
+		}
+		for svc, cfg := range pp.vm {
+			vmCfgs[svc] = cfg
 		}
 		tmp := filepath.Join(tmpDir, fmt.Sprintf("%02d-%s", i, filepath.Base(f)))
 		if err := os.WriteFile(tmp, pp.content, 0o600); err != nil {
@@ -191,6 +195,13 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	applyPlacement(objects, placements)
 	applyNodeSelector(objects, nodeSelectors)
 	applyGPUResources(objects, gpus)
+
+	// 6e. Convert x-orcinus-vm services into KubeVirt VirtualMachines (after
+	//     placement/GPU, so the VM inherits nodeSelector/affinity).
+	objects, err = convertVMs(objects, vmCfgs)
+	if err != nil {
+		return nil, err
+	}
 
 	// 7. Convert Deployments to Argo Rollouts for x-orcinus-rollout services.
 	objects, rolloutSvcs, err := convertRollouts(objects, rolloutCfgs)
