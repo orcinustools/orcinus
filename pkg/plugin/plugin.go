@@ -41,6 +41,10 @@ type Options struct {
 	// rook-ceph tuning
 	CephDeviceFilter  string // regex of devices to use (e.g. "^sd[b-d]")
 	CephFailureDomain string // pool failure domain (host|osd|rack); default host
+
+	// kubevirt options
+	Emulation bool // run VMs under software emulation (no /dev/kvm on the node)
+	CDI       bool // also install the Containerized Data Importer
 }
 
 // WaitTarget is a Deployment to wait for before post-install steps.
@@ -101,6 +105,14 @@ var Registry = map[string]Spec{
 		Description: "NGINX ingress controller (ingress class: nginx)",
 		Version:     "controller-v1.11.3",
 		Manifests:   []string{"https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/cloud/deploy.yaml"},
+	},
+	"kubevirt": {
+		Name:        "kubevirt",
+		Description: "Run virtual machines on the cluster (KubeVirt, + optional CDI)",
+		Version:     kubeVirtVersion,
+		Build:       buildKubeVirt,
+		Notes: "Needs /dev/kvm on the nodes — pass --emulation for software emulation instead (slower). " +
+			"Add --cdi to install the Containerized Data Importer for DataVolume disk images.",
 	},
 	"metrics-server": {
 		Name:        "metrics-server",

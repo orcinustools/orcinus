@@ -48,6 +48,50 @@ func TestCertManagerDNSIssuer(t *testing.T) {
 	}
 }
 
+// TestBuildKubeVirt: the CR is a post-install object (needs the operator's CRD),
+// --emulation flips useEmulation, and --cdi adds the importer.
+func TestBuildKubeVirt(t *testing.T) {
+	b, err := Registry["kubevirt"].Build(Options{})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(b.Manifests) != 1 || len(b.PostObjects) != 1 || len(b.WaitFor) != 1 {
+		t.Fatalf("default: got %d manifests, %d post objects, %d waits", len(b.Manifests), len(b.PostObjects), len(b.WaitFor))
+	}
+	if b.WaitFor[0] != (WaitTarget{Namespace: "kubevirt", Name: "virt-operator"}) {
+		t.Errorf("unexpected wait target %+v", b.WaitFor[0])
+	}
+	dev := developerConfig(t, b.PostObjects[0])
+	if _, ok := dev["useEmulation"]; ok {
+		t.Errorf("useEmulation should be unset without --emulation")
+	}
+
+	b, _ = Registry["kubevirt"].Build(Options{Emulation: true, CDI: true})
+	if dev := developerConfig(t, b.PostObjects[0]); dev["useEmulation"] != true {
+		t.Errorf("--emulation: useEmulation=%v, want true", dev["useEmulation"])
+	}
+	if len(b.Manifests) != 2 || len(b.PostObjects) != 2 || len(b.WaitFor) != 2 {
+		t.Fatalf("--cdi: got %d manifests, %d post objects, %d waits", len(b.Manifests), len(b.PostObjects), len(b.WaitFor))
+	}
+	if u, ok := b.PostObjects[1].(*unstructured.Unstructured); !ok || u.GetKind() != "CDI" {
+		t.Errorf("--cdi: expected a CDI object, got %#v", b.PostObjects[1])
+	}
+}
+
+// developerConfig digs spec.configuration.developerConfiguration out of a CR.
+func developerConfig(t *testing.T, obj interface{}) map[string]interface{} {
+	t.Helper()
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		t.Fatalf("expected an unstructured object, got %#v", obj)
+	}
+	dev, found, err := unstructured.NestedMap(u.Object, "spec", "configuration", "developerConfiguration")
+	if err != nil || !found {
+		t.Fatalf("developerConfiguration not found (err=%v)", err)
+	}
+	return dev
+}
+
 // TestResolveStorageProviders sanity-checks the storage provider variants build.
 func TestResolveStorageProviders(t *testing.T) {
 	spec := Registry["storage"]

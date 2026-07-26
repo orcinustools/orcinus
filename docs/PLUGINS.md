@@ -72,6 +72,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `dashboard` | — | Kubernetes Dashboard (web UI) |
 | `registry` | — | In-cluster image registry (`registry.orcinus-registry.svc:5000`) |
 | `grafana` | — | Grafana (point at Prometheus) |
+| `kubevirt` | `--emulation`, `--cdi` | KubeVirt (run VMs on the cluster) — see below |
 | `storage` | `--provider`, `--size`, `--replicas`, `--nfs-server`, `--nfs-path`, `--ceph-*` | Storage backends — see below |
 
 All plugin versions are **pinned** (see `orcinus plugin info <name>`), so installs
@@ -121,6 +122,64 @@ Remove with the same provider, e.g. `orcinus plugin remove storage --provider mi
 
 For fault-tolerant setups (replicas across nodes) see
 [`HA-STORAGE.md`](./HA-STORAGE.md).
+
+### Virtual machines (KubeVirt)
+
+`kubevirt` lets the cluster schedule **VMs next to containers**. It installs the
+KubeVirt operator (namespace `kubevirt`), waits for `virt-operator`, then applies
+a `KubeVirt` custom resource — which is what brings up `virt-api`,
+`virt-controller`, and `virt-handler`:
+
+```bash
+orcinus plugin install kubevirt               # nodes must have /dev/kvm
+orcinus plugin install kubevirt --emulation   # no /dev/kvm: QEMU software emulation (slower)
+orcinus plugin install kubevirt --cdi         # + CDI, for disk images from URLs/registries
+```
+
+- **Hardware virtualization:** VMs want `/dev/kvm` on the node. A containerized
+  orcinus cluster only has it if the host passes it through, so if VMs stay
+  pending on `devices.kubevirt.io/kvm`, re-install with `--emulation`.
+- **`--cdi`** installs the Containerized Data Importer (namespace `cdi`), which
+  adds `DataVolume`s — import a cloud image (URL, registry, or upload) into a PVC
+  and boot a VM off it.
+- Check readiness with
+  `orcinus kubectl -n kubevirt get kubevirt kubevirt -o jsonpath='{.status.phase}'`
+  (`Deployed` when the control plane is up).
+
+A VM is a plain manifest, so `orcinus deploy -f` applies it:
+
+```yaml
+# vm.yml
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: cirros
+spec:
+  runStrategy: Always
+  template:
+    spec:
+      domain:
+        memory:
+          guest: 256Mi
+        devices:
+          disks:
+            - name: containerdisk
+              disk: { bus: virtio }
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            image: quay.io/kubevirt/cirros-container-disk-demo
+```
+
+```bash
+orcinus deploy -f vm.yml
+orcinus kubectl get vmi                       # the running VM instance
+```
+
+Console/VNC access needs upstream `virtctl` (`virtctl console cirros`).
+
+`orcinus plugin remove kubevirt` deletes the `KubeVirt` CR first, then the
+operator — give the CR's finalizer a moment before re-installing.
 
 ### Auto-install on deploy
 
