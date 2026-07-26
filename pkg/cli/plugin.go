@@ -168,4 +168,6 @@ func pluginFlags(cmd *cobra.Command, o *plugin.Options) {
 	f.IntVar(&o.Replicas, "replicas", 0, "replica count — storage: minio (distributed), longhorn, rook-ceph pool size")
 	f.StringVar(&o.CephDeviceFilter, "ceph-device-filter", "", "rook-ceph: device regex (e.g. '^sd[b-d]')")
 	f.StringVar(&o.CephFailureDomain, "ceph-failure-domain", "", "rook-ceph: pool failure domain (host|osd|rack)")
+	f.BoolVar(&o.Emulation, "emulation", false, "kubevirt: run VMs under software emulation (no /dev/kvm)")
+	f.BoolVar(&o.CDI, "cdi", false, "kubevirt: also install the Containerized Data Importer (disk images)")
 }

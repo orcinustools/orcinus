@@ -396,6 +396,219 @@ services:
 	}
 }
 
+// TestConvertVM: x-orcinus-vm turns a service into a KubeVirt VirtualMachine that
+// the service's own Service still selects, with cpu/memory taken from compose.
+func TestConvertVM(t *testing.T) {
+	const f = `
+services:
+  ubuntu:
+    image: quay.io/containerdisks/ubuntu:24.04
+    ports: ["22"]
+    x-orcinus-vm: true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    x-orcinus-cloud-init-placeholder: unused
+  web:
+    image: nginx:1.27
+    ports: ["80"]
+`
+	objs := convertString(t, f)
+	var vm *unstructured.Unstructured
+	var svc *corev1.Service
+	for _, o := range objs {
+		switch t2 := o.(type) {
+		case *appsv1.Deployment:
+			if t2.Name == "ubuntu" {
+				t.Fatal("ubuntu should be a VirtualMachine, not a Deployment")
+			}
+		case *corev1.Service:
+			if t2.Name == "ubuntu" {
+				svc = t2
+			}
+		case *unstructured.Unstructured:
+			if t2.GetKind() == "VirtualMachine" {
+				vm = t2
+			}
+		}
+	}
+	if vm == nil || svc == nil {
+		t.Fatalf("expected a VirtualMachine + its Service, got vm=%v svc=%v", vm, svc)
+	}
+	if vm.GetAPIVersion() != "kubevirt.io/v1" || vm.GetName() != "ubuntu" {
+		t.Errorf("vm = %s/%s", vm.GetAPIVersion(), vm.GetName())
+	}
+	if rs, _, _ := unstructured.NestedString(vm.Object, "spec", "runStrategy"); rs != "Always" {
+		t.Errorf("runStrategy = %q, want Always", rs)
+	}
+	// The Service must still select the workload: VM pod labels == Service selector.
+	podLabels, _, _ := unstructured.NestedStringMap(vm.Object, "spec", "template", "metadata", "labels")
+	for k, v := range svc.Spec.Selector {
+		if podLabels[k] != v {
+			t.Errorf("Service selector %s=%s not on the VM pod labels %v", k, v, podLabels)
+		}
+	}
+	// compose image → containerDisk; cpus/memory → domain.
+	img, _, _ := unstructured.NestedString(vm.Object, "spec", "template", "spec", "volumes")
+	_ = img
+	vols, _, _ := unstructured.NestedSlice(vm.Object, "spec", "template", "spec", "volumes")
+	if len(vols) != 2 {
+		t.Fatalf("expected rootdisk + cloudinit volumes, got %d", len(vols))
+	}
+	root, _ := vols[0].(map[string]interface{})
+	cd, _ := root["containerDisk"].(map[string]interface{})
+	if cd == nil || cd["image"] != "quay.io/containerdisks/ubuntu:24.04" {
+		t.Errorf("rootdisk = %v, want the compose image as a containerDisk", root)
+	}
+	cores, _, _ := unstructured.NestedInt64(vm.Object, "spec", "template", "spec", "domain", "cpu", "cores")
+	if cores != 2 {
+		t.Errorf("cores = %d, want 2", cores)
+	}
+	mem, _, _ := unstructured.NestedString(vm.Object, "spec", "template", "spec", "domain", "memory", "guest")
+	if mem != "2Gi" {
+		t.Errorf("guest memory = %q, want 2Gi", mem)
+	}
+	// A plain service in the same file stays a Deployment.
+	if d := findDeployment(objs, "web"); d == nil {
+		t.Error("web should still be a Deployment")
+	}
+}
+
+// TestConvertVMPersistentAndSSH: --disk adds a CDI DataVolume, and the SSH secret
+// becomes accessCredentials; cloud-init is passed through verbatim.
+func TestConvertVMPersistentAndSSH(t *testing.T) {
+	const f = `
+services:
+  vm:
+    image: quay.io/containerdisks/fedora:44
+    ports: ["22"]
+    x-orcinus-vm: halted
+    x-orcinus-vm-disk: 20Gi
+    x-orcinus-vm-ssh-secret: vm-ssh
+    x-orcinus-vm-ssh-users: [orcinus]
+    x-orcinus-vm-cloud-init: |
+      #cloud-config
+      hostname: box
+`
+	var vm, dv *unstructured.Unstructured
+	for _, o := range convertString(t, f) {
+		u, ok := o.(*unstructured.Unstructured)
+		if !ok {
+			continue
+		}
+		switch u.GetKind() {
+		case "VirtualMachine":
+			vm = u
+		case "DataVolume":
+			dv = u
+		}
+	}
+	if vm == nil || dv == nil {
+		t.Fatalf("expected a VirtualMachine + DataVolume, got vm=%v dv=%v", vm, dv)
+	}
+	if rs, _, _ := unstructured.NestedString(vm.Object, "spec", "runStrategy"); rs != "Halted" {
+		t.Errorf("runStrategy = %q, want Halted", rs)
+	}
+	if url, _, _ := unstructured.NestedString(dv.Object, "spec", "source", "registry", "url"); url != "docker://quay.io/containerdisks/fedora:44" {
+		t.Errorf("DataVolume source = %q", url)
+	}
+	if size, _, _ := unstructured.NestedString(dv.Object, "spec", "storage", "resources", "requests", "storage"); size != "20Gi" {
+		t.Errorf("DataVolume size = %q, want 20Gi", size)
+	}
+	vols, _, _ := unstructured.NestedSlice(vm.Object, "spec", "template", "spec", "volumes")
+	root, _ := vols[0].(map[string]interface{})
+	if root["containerDisk"] != nil {
+		t.Errorf("with a disk size the root volume must be the DataVolume, got %v", root)
+	}
+	creds, _, _ := unstructured.NestedSlice(vm.Object, "spec", "template", "spec", "accessCredentials")
+	if len(creds) != 1 {
+		t.Fatalf("expected 1 accessCredential, got %d", len(creds))
+	}
+	c, _ := creds[0].(map[string]interface{})
+	key, _ := c["sshPublicKey"].(map[string]interface{})
+	src, _ := key["source"].(map[string]interface{})
+	secret, _ := src["secret"].(map[string]interface{})
+	if secret["secretName"] != "vm-ssh" {
+		t.Errorf("secretName = %v, want vm-ssh", secret["secretName"])
+	}
+	prop, _ := key["propagationMethod"].(map[string]interface{})
+	if prop["qemuGuestAgent"] == nil {
+		t.Errorf("named users need qemuGuestAgent propagation, got %v", prop)
+	}
+	userData, _, _ := unstructured.NestedString(vm.Object, "spec", "template", "spec", "volumes")
+	_ = userData
+	ci, _ := vols[1].(map[string]interface{})
+	nc, _ := ci["cloudInitNoCloud"].(map[string]interface{})
+	if s, _ := nc["userData"].(string); !strings.Contains(s, "hostname: box") {
+		t.Errorf("cloud-init not passed through: %q", nc["userData"])
+	}
+}
+
+// TestConvertVMErrors covers the combinations that can't work.
+func TestConvertVMErrors(t *testing.T) {
+	cases := map[string]string{
+		"replicas": `
+services:
+  vm:
+    image: quay.io/containerdisks/ubuntu:24.04
+    x-orcinus-vm: true
+    deploy:
+      replicas: 3
+`,
+		"rollout": `
+services:
+  vm:
+    image: quay.io/containerdisks/ubuntu:24.04
+    ports: ["80"]
+    x-orcinus-vm: true
+    x-orcinus-rollout: canary
+`,
+		"autoscale": `
+services:
+  vm:
+    image: quay.io/containerdisks/ubuntu:24.04
+    x-orcinus-vm: true
+    x-orcinus-autoscale-max: 5
+`,
+		"bad value": `
+services:
+  vm:
+    image: quay.io/containerdisks/ubuntu:24.04
+    x-orcinus-vm: sometimes
+`,
+		"ssh users without secret": `
+services:
+  vm:
+    image: quay.io/containerdisks/ubuntu:24.04
+    x-orcinus-vm: true
+    x-orcinus-vm-ssh-users: [orcinus]
+`,
+	}
+	for name, f := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "orcinus.yml")
+			if err := os.WriteFile(path, []byte(f), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Convert(Options{Files: []string{path}, ProjectName: "p"}); err == nil {
+				t.Fatalf("expected an error for %q", name)
+			}
+		})
+	}
+}
+
+func findDeployment(objs []runtime.Object, name string) *appsv1.Deployment {
+	for _, o := range objs {
+		if d, ok := o.(*appsv1.Deployment); ok && d.Name == name {
+			return d
+		}
+	}
+	return nil
+}
+
 func TestConvertIngressCustomCert(t *testing.T) {
 	const f = `
 services:

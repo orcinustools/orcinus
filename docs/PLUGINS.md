@@ -72,6 +72,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `dashboard` | — | Kubernetes Dashboard (web UI) |
 | `registry` | — | In-cluster image registry (`registry.orcinus-registry.svc:5000`) |
 | `grafana` | — | Grafana (point at Prometheus) |
+| `kubevirt` | `--emulation`, `--cdi` | KubeVirt (run VMs on the cluster) — see below |
 | `storage` | `--provider`, `--size`, `--replicas`, `--nfs-server`, `--nfs-path`, `--ceph-*` | Storage backends — see below |
 
 All plugin versions are **pinned** (see `orcinus plugin info <name>`), so installs
@@ -121,6 +122,181 @@ Remove with the same provider, e.g. `orcinus plugin remove storage --provider mi
 
 For fault-tolerant setups (replicas across nodes) see
 [`HA-STORAGE.md`](./HA-STORAGE.md).
+
+### Virtual machines (KubeVirt)
+
+`kubevirt` lets the cluster schedule **VMs next to containers**. It installs the
+KubeVirt operator (namespace `kubevirt`), waits for `virt-operator`, then applies
+a `KubeVirt` custom resource — which is what brings up `virt-api`,
+`virt-controller`, and `virt-handler`:
+
+```bash
+orcinus plugin install kubevirt               # nodes must have /dev/kvm
+orcinus plugin install kubevirt --emulation   # no /dev/kvm: QEMU software emulation (slower)
+orcinus plugin install kubevirt --cdi         # + CDI, for disk images from URLs/registries
+```
+
+- **Hardware virtualization:** VMs want `/dev/kvm` on the node. A containerized
+  orcinus cluster only has it if the host passes it through, so if VMs stay
+  pending on `devices.kubevirt.io/kvm`, re-install with `--emulation`.
+- **`--cdi`** installs the Containerized Data Importer (namespace `cdi`), which
+  adds `DataVolume`s — import a cloud image (URL, registry, or upload) into a PVC
+  and boot a VM off it.
+- Check readiness with
+  `orcinus kubectl -n kubevirt get kubevirt kubevirt -o jsonpath='{.status.phase}'`
+  (`Deployed` when the control plane is up).
+
+**A VM as a compose service.** `x-orcinus-vm: true` makes orcinus emit a
+`VirtualMachine` instead of a Deployment — no KubeVirt YAML, and the rest of the
+service (ports, resources, ingress keys) works as usual:
+
+```yaml
+services:
+  ubuntu:
+    image: quay.io/containerdisks/ubuntu:24.04   # the boot disk
+    x-orcinus-vm: true                           # halted = defined, not started
+    ports: ["22"]                                # → a Service, as for a container
+    deploy:
+      resources:
+        limits:
+          cpus: "2"                              # → domain.cpu.cores
+          memory: 2G                             # → domain.memory.guest
+    x-orcinus-vm-disk: 10Gi                      # persistent root disk (CDI); omit = ephemeral
+    x-orcinus-vm-ssh-secret: vm-ssh              # inject a public key from a Secret
+    x-orcinus-vm-cloud-init: |
+      #cloud-config
+      hostname: ubuntu
+```
+
+Because the VM keeps the service's pod labels, the generated `Service` (and
+`Ingress`, via `x-orcinus-expose: ingress` + `x-orcinus-host`) points at the VM
+exactly as it would at a container — containers and VMs are addressed the same way.
+`deploy.placement` and `x-orcinus-node-selector` carry over to the VM too. A VM
+can't be autoscaled or turned into a Rollout, and `replicas` must stay 1; orcinus
+rejects those combinations instead of silently dropping them. `orcinus deploy`
+refuses to apply VMs when the `kubevirt` plugin isn't installed, telling you the
+command to run (it is not auto-installed, because whether the nodes need
+`--emulation` can't be guessed).
+
+**Or write the KubeVirt manifest yourself** — `orcinus deploy -f` applies it, and a
+compose service and a VM can live in the same file. Use this when you want a knob
+the compose sugar doesn't expose:
+
+```yaml
+# vm.yml
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: ubuntu
+spec:
+  runStrategy: Always                # Halted = defined but not started
+  template:
+    metadata:
+      labels:
+        app: ubuntu                  # copied to the VMI's pod → Service selector
+    spec:
+      domain:
+        memory:
+          guest: 1Gi
+        devices:
+          rng: {}                    # virtio-rng: cloud-init won't stall on entropy
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/ubuntu:24.04
+```
+
+```bash
+orcinus deploy -f vm.yml
+orcinus kubectl get vmi                       # the running VM instance
+```
+
+Point a normal `Service` at the pod labels above and containers reach the VM by
+DNS name, like any other backend.
+
+**Disk options.** A `containerDisk` boots the cloud image from a registry with a
+throwaway overlay — nothing to provision, but **writes are lost on restart**. For a
+persistent disk, install with `--cdi` and use a `DataVolume` (imported once into a
+PVC).
+
+**Distro images.** [`quay.io/containerdisks`](https://quay.io/organization/containerdisks)
+publishes maintained multi-arch (amd64/arm64) cloud images — swap the one line:
+
+| Image | Tags |
+|---|---|
+| `quay.io/containerdisks/ubuntu` | `22.04`, `24.04` |
+| `quay.io/containerdisks/fedora` | `40` … `44` |
+| `quay.io/containerdisks/debian` | `11`, `12`, `13` |
+| `quay.io/containerdisks/centos-stream` | `9`, `10` |
+| `quay.io/containerdisks/almalinux` | `9`, `10` |
+| `quay.io/containerdisks/opensuse-leap` | `15.6`, `16.0` |
+
+(also `opensuse-tumbleweed`, `opensuse-microos`, `centos`.) Give each guest a login
+with a `cloudInitNoCloud` volume — an explicit `users:` block works the same on
+every distro, so you don't need each image's default account.
+
+**Reaching a VM from outside (SSH, public IP).** What you can publish depends on
+the cluster runtime:
+
+| `cluster init --runtime` | Host ports published | External SSH |
+|---|---|---|
+| `docker` (default) | API `6443` + `--http-port`/`--https-port` | **no** — a NodePort/LoadBalancer binds inside the cluster container; use `orcinus kubectl port-forward svc/<vm> 2222:22 --address 0.0.0.0` |
+| `standalone` | none needed — k3s runs on the host, so the node IP *is* the host IP | **yes** — NodePort or `type: LoadBalancer` (k3s ServiceLB) lands on the public IP |
+
+```bash
+orcinus cluster init --runtime standalone --http-port 80 --https-port 443 --advertise <public-ip>
+orcinus secret create vm-ssh --from-literal orcinus="$(cat ~/.ssh/id_ed25519.pub)"
+```
+
+Reference the Secret from the VM and KubeVirt injects the key — rotate by updating
+the Secret, not the VM:
+
+```yaml
+      accessCredentials:
+        - sshPublicKey:
+            source:
+              secret:
+                secretName: vm-ssh
+            propagationMethod:
+              noCloud: {}                  # → the image's default user (ubuntu, fedora, …)
+              # qemuGuestAgent:            # → named users; needs qemu-guest-agent in the guest
+              #   users: [orcinus]
+```
+
+Then `ssh -p 2222 ubuntu@<public-ip>` through a `LoadBalancer` Service
+(`port: 2222` → `targetPort: 22`; the host's own sshd usually owns 22). Set
+`ssh_pwauth: false` in cloud-init so a public VM is key-only. HTTP works on either
+runtime — put a `Service` + `Ingress` in front of the VM and Traefik serves it on
+the published 80/443. Full file: [`examples/kubevirt/ssh-public.yml`](../examples/kubevirt/ssh-public.yml).
+
+Console/VNC access needs upstream `virtctl` (`virtctl console ubuntu`), which is
+also how you start/stop a `Halted` VM (`virtctl start ubuntu`); without it, patch
+`spec.runStrategy`. `virtctl ssh ubuntu@<vm>` tunnels over the API server, so it
+needs no published port at all.
+
+Runnable examples in [`examples/kubevirt`](../examples/kubevirt/) — the same VM
+both ways:
+
+| File | Style |
+|---|---|
+| [`vm-compose.yml`](../examples/kubevirt/vm-compose.yml) | **compose** — a container + Ubuntu/Fedora VMs from `x-orcinus-vm` |
+| [`vm-compose-web.yml`](../examples/kubevirt/vm-compose-web.yml) | **compose** — persistent disk + key-only SSH + published over the ingress |
+| [`orcinus.yml`](../examples/kubevirt/orcinus.yml) | raw manifests — a container + two VMs, each behind a Service |
+| [`distros.yml`](../examples/kubevirt/distros.yml) | raw manifests — six-distro catalog, all `Halted` |
+| [`cdi-datavolume.yml`](../examples/kubevirt/cdi-datavolume.yml) | raw manifests — CDI `DataVolume` root disk, nginx served via Service |
+| [`ssh-public.yml`](../examples/kubevirt/ssh-public.yml) | raw manifests — `accessCredentials`, LoadBalancer SSH, Ingress |
+
+`orcinus plugin remove kubevirt` deletes the `KubeVirt` CR first, then the
+operator — give the CR's finalizer a moment before re-installing.
 
 ### Auto-install on deploy
 

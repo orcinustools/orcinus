@@ -563,14 +563,16 @@ orcinus plugin remove metrics-server
 ```
 
 Catalog: `cert-manager`, `ingress-nginx`, `metrics-server`, `monitoring`,
-`argo-rollouts`, `dashboard`, `registry`, `grafana`, `storage` (providers:
-`local-path`/`longhorn`/`nfs`/`minio`/`rook-ceph`). Versions are pinned. Install a
-set with `--profile web|observability`. See [`PLUGINS.md`](./PLUGINS.md).
+`argo-rollouts`, `dashboard`, `registry`, `grafana`, `kubevirt`, `storage`
+(providers: `local-path`/`longhorn`/`nfs`/`minio`/`rook-ceph`). Versions are
+pinned. Install a set with `--profile web|observability`. See
+[`PLUGINS.md`](./PLUGINS.md).
 
 ```bash
 orcinus plugin install storage --provider minio --size 20Gi
 orcinus plugin install storage --provider minio --replicas 4   # distributed/HA
 orcinus plugin install storage --provider nfs --nfs-server 10.0.0.9 --nfs-path /export
+orcinus plugin install kubevirt --emulation --cdi              # VMs (no /dev/kvm) + disk images
 ```
 
 For fault-tolerant storage across nodes, see [`HA-STORAGE.md`](./HA-STORAGE.md).
@@ -873,6 +875,17 @@ keys; orcinus parses them during conversion.
 | `x-orcinus-max-surge` | int or % (e.g. `1`, `25%`) | Rolling: extra pods created during an update |
 | `x-orcinus-max-unavailable` | int or % (e.g. `0`, `25%`) | Rolling: pods that may be down during an update |
 | `x-orcinus-rollout` | `canary` \| `bluegreen` | Emit an Argo **Rollout** instead of a Deployment (progressive delivery) |
+| `x-orcinus-vm` | `true` \| `halted` | Emit a KubeVirt **VirtualMachine** instead of a Deployment — `image:` is the boot disk, `ports:` still becomes a Service (needs the `kubevirt` plugin) |
+| `x-orcinus-vm-disk` | e.g. `10Gi` | VM: **persistent** root disk — a CDI `DataVolume` imports the image into a PVC (needs `--cdi`); without it the disk is ephemeral |
+| `x-orcinus-vm-cloud-init` | cloud-config text | VM: cloud-init user data (users, packages, files) |
+| `x-orcinus-vm-ssh-secret` | Secret name | VM: inject SSH public key(s) from that Secret |
+| `x-orcinus-vm-ssh-users` | list of guest users | VM: propagate the key to these users (needs `qemu-guest-agent`); default is the image's own user |
+
+A VM service also honours the ordinary keys: `deploy.resources.limits.cpus`/`memory`
+become the vCPU count and guest memory, and `x-orcinus-expose` / `x-orcinus-host` /
+`x-orcinus-tls` / `x-orcinus-node-selector` / `deploy.placement` behave exactly as
+they do for a container. See [`PLUGINS.md`](./PLUGINS.md#virtual-machines-kubevirt)
+and [`examples/kubevirt`](../examples/kubevirt/vm-compose.yml).
 
 Example:
 

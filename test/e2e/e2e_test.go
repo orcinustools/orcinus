@@ -168,17 +168,18 @@ func TestDeployFromURL(t *testing.T) {
 	}
 }
 
-// TestExamplesRender dry-run-renders every examples/**/orcinus.yml so a broken
-// example is caught in CI (no cluster needed).
+// TestExamplesRender dry-run-renders every example file so a broken example is
+// caught in CI (no cluster needed). The glob covers extra files a folder ships
+// besides its orcinus.yml (e.g. kubevirt/distros.yml).
 func TestExamplesRender(t *testing.T) {
 	root := repoRoot()
-	matches, _ := filepath.Glob(filepath.Join(root, "examples", "*", "orcinus.yml"))
+	matches, _ := filepath.Glob(filepath.Join(root, "examples", "*", "*.yml"))
 	matches = append(matches, filepath.Join(root, "examples", "orcinus.yml"))
 	if len(matches) < 5 {
 		t.Fatalf("expected several examples, found %d", len(matches))
 	}
 	for _, f := range matches {
-		name := filepath.Base(filepath.Dir(f))
+		name := filepath.Join(filepath.Base(filepath.Dir(f)), filepath.Base(f))
 		t.Run(name, func(t *testing.T) {
 			cmd := exec.Command(orcinusBin, "deploy", "-f", f, "--dry-run", "--project", "ex")
 			cmd.Dir = root

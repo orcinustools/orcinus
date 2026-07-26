@@ -1,0 +1,337 @@
+# A multi-distro VM catalog: Ubuntu, Fedora, Debian, CentOS Stream, AlmaLinux and
+# openSUSE Leap, all defined the same way — only the containerDisk image differs.
+#
+# Every VM here is `runStrategy: Halted`, i.e. **defined but not started**. Six
+# cloud images running at once would eat ~6 GiB of RAM (much worse under software
+# emulation), so applying this file is cheap and you start only what you need.
+#
+#   orcinus plugin install kubevirt [--emulation]     # prerequisite
+#   orcinus deploy -f distros.yml
+#   orcinus kubectl get vm                            # the catalog (all Stopped)
+#
+# Start / stop one — with upstream virtctl, or by flipping runStrategy:
+#
+#   virtctl start debian
+#   orcinus kubectl patch vm debian --type merge -p '{"spec":{"runStrategy":"Always"}}'
+#   orcinus kubectl patch vm debian --type merge -p '{"spec":{"runStrategy":"Halted"}}'
+#
+#   orcinus kubectl get vmi                           # what is actually running
+#
+# Log in as orcinus / orcinus (cloud-init below creates that user on every
+# distro, so you don't have to remember each image's default account):
+#
+#   virtctl console debian
+#
+# Other images and tags published by the same project — swap the image line to
+# get a different distro or release:
+#
+#   quay.io/containerdisks/ubuntu:22.04 | :24.04
+#   quay.io/containerdisks/fedora:40 … :44
+#   quay.io/containerdisks/debian:11 | :12 | :13
+#   quay.io/containerdisks/centos-stream:9 | :10
+#   quay.io/containerdisks/almalinux:9 | :10
+#   quay.io/containerdisks/opensuse-leap:15.6 | :16.0
+#   quay.io/containerdisks/opensuse-tumbleweed | opensuse-microos | centos
+#
+# All are multi-arch (amd64/arm64), and all boot ephemerally from a containerDisk
+# — writes are discarded when the VM stops. See `cdi-datavolume.yml` for a VM with
+# a persistent disk.
+
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: ubuntu
+  labels:
+    distro: ubuntu
+spec:
+  runStrategy: Halted
+  template:
+    metadata:
+      labels:
+        app: ubuntu
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1Gi
+        devices:
+          rng: {}
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/ubuntu:24.04
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: ubuntu
+              users:
+                - name: orcinus
+                  groups: [sudo, wheel]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+                  plain_text_passwd: orcinus
+              ssh_pwauth: true
+
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: fedora
+  labels:
+    distro: fedora
+spec:
+  runStrategy: Halted
+  template:
+    metadata:
+      labels:
+        app: fedora
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1Gi
+        devices:
+          rng: {}
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:44
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: fedora
+              users:
+                - name: orcinus
+                  groups: [sudo, wheel]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+                  plain_text_passwd: orcinus
+              ssh_pwauth: true
+
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: debian
+  labels:
+    distro: debian
+spec:
+  runStrategy: Halted
+  template:
+    metadata:
+      labels:
+        app: debian
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1Gi
+        devices:
+          rng: {}
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/debian:13
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: debian
+              users:
+                - name: orcinus
+                  groups: [sudo, wheel]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+                  plain_text_passwd: orcinus
+              ssh_pwauth: true
+
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: centos-stream
+  labels:
+    distro: centos-stream
+spec:
+  runStrategy: Halted
+  template:
+    metadata:
+      labels:
+        app: centos-stream
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1536Mi           # RHEL-family cloud images are happier with >1Gi
+        devices:
+          rng: {}
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/centos-stream:10
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: centos-stream
+              users:
+                - name: orcinus
+                  groups: [sudo, wheel]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+                  plain_text_passwd: orcinus
+              ssh_pwauth: true
+
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: almalinux
+  labels:
+    distro: almalinux
+spec:
+  runStrategy: Halted
+  template:
+    metadata:
+      labels:
+        app: almalinux
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1536Mi
+        devices:
+          rng: {}
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/almalinux:9
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: almalinux
+              users:
+                - name: orcinus
+                  groups: [sudo, wheel]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+                  plain_text_passwd: orcinus
+              ssh_pwauth: true
+
+---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: opensuse-leap
+  labels:
+    distro: opensuse-leap
+spec:
+  runStrategy: Halted
+  template:
+    metadata:
+      labels:
+        app: opensuse-leap
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1Gi
+        devices:
+          rng: {}
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/opensuse-leap:15.6
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: opensuse-leap
+              users:
+                - name: orcinus
+                  groups: [sudo, wheel]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+                  plain_text_passwd: orcinus
+              ssh_pwauth: true

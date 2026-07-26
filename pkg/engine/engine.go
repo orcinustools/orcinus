@@ -134,6 +134,12 @@ func AutoInstall(ctx context.Context, objects []runtime.Object, req Request) ([]
 		}
 		installed = append(installed, "argo-rollouts")
 	}
+	// KubeVirt is not auto-installed: whether the nodes need --emulation can't be
+	// inferred, and installing it wrong leaves VMs that never start.
+	if NeedsKubeVirt(objects) && !plugin.Installed("kubevirt") {
+		return installed, fmt.Errorf("the input has VirtualMachine objects but the kubevirt plugin is not installed; " +
+			"run `orcinus plugin install kubevirt` (add --emulation if the nodes have no /dev/kvm)")
+	}
 	return installed, nil
 }
 
@@ -186,6 +192,18 @@ func NeedsCertManager(objects []runtime.Object) bool {
 			continue
 		}
 		if _, ok := acc.GetAnnotations()["cert-manager.io/cluster-issuer"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// NeedsKubeVirt reports whether any object is a KubeVirt VirtualMachine, i.e. the
+// input needs the kubevirt plugin's CRDs and control plane.
+func NeedsKubeVirt(objects []runtime.Object) bool {
+	for _, o := range objects {
+		gvk := o.GetObjectKind().GroupVersionKind()
+		if gvk.Group == "kubevirt.io" && gvk.Kind == "VirtualMachine" {
 			return true
 		}
 	}

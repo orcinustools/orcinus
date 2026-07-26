@@ -1,0 +1,163 @@
+# Virtual machines next to containers, in one file (KubeVirt).
+#
+# Prerequisite — install the plugin once:
+#
+#   orcinus plugin install kubevirt               # nodes have /dev/kvm
+#   orcinus plugin install kubevirt --emulation   # no /dev/kvm: software emulation (slower)
+#
+# Wait until the control plane is up (phase: Deployed):
+#
+#   orcinus kubectl -n kubevirt get kubevirt kubevirt -o jsonpath='{.status.phase}'
+#
+# Then:
+#
+#   orcinus deploy -f orcinus.yml --wait
+#   orcinus kubectl get vmi                      # the running VM instances
+#   orcinus kubectl exec deploy/toolbox -- nc -zv ubuntu 22    # container → VM
+#
+# Log in (password: orcinus) — from the toolbox container, or on the VM console
+# with upstream virtctl:
+#
+#   orcinus kubectl exec -it deploy/toolbox -- sh -c 'apk add -q openssh-client && ssh orcinus@fedora'
+#   virtctl console fedora
+#
+# The VMs below boot from **containerDisk** volumes: the cloud image is pulled
+# like any OCI image and run with a throwaway overlay — nothing to import, no
+# storage to provision, but **writes are lost on every restart**. For a VM with a
+# persistent disk see `cdi-datavolume.yml`; for more distros see `distros.yml`.
+#
+# Images come from quay.io/containerdisks (multi-arch: amd64/arm64), so this also
+# works on an Apple Silicon host.
+
+# --- 1) a plain container, to prove containers and VMs share one network ---
+services:
+  toolbox:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
+
+---
+# --- 2) Ubuntu 24.04 VM ---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: ubuntu
+spec:
+  runStrategy: Always              # Halted = defined but not started
+  template:
+    metadata:
+      labels:
+        app: ubuntu                # copied to the VMI + its pod → Service selector
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1Gi               # raise it if the guest OOMs while booting
+        devices:
+          rng: {}                  # virtio-rng: keeps cloud-init from stalling on entropy
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}       # NAT behind the pod IP
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/ubuntu:24.04
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: ubuntu
+              # An explicit user works the same on every distro (no need to know
+              # whether the image's default is ubuntu/fedora/cloud-user/…).
+              users:
+                - name: orcinus
+                  groups: [sudo, wheel]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+                  plain_text_passwd: orcinus
+              ssh_pwauth: true
+
+---
+# --- 3) Fedora VM — same shape, different image ---
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: fedora
+spec:
+  runStrategy: Always
+  template:
+    metadata:
+      labels:
+        app: fedora
+    spec:
+      domain:
+        cpu:
+          cores: 1
+        memory:
+          guest: 1Gi
+        devices:
+          rng: {}
+          disks:
+            - name: rootdisk
+              disk: { bus: virtio }
+            - name: cloudinit
+              disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: rootdisk
+          containerDisk:
+            image: quay.io/containerdisks/fedora:44
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |
+              #cloud-config
+              hostname: fedora
+              users:
+                - name: orcinus
+                  groups: [sudo, wheel]
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  shell: /bin/bash
+                  lock_passwd: false
+                  plain_text_passwd: orcinus
+              ssh_pwauth: true
+
+---
+# --- 4) Services: a VM is reachable by DNS name like any other workload ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ubuntu
+spec:
+  selector:
+    app: ubuntu                    # matches the VMI's pod labels
+  ports:
+    - name: ssh
+      port: 22
+      targetPort: 22
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fedora
+spec:
+  selector:
+    app: fedora
+  ports:
+    - name: ssh
+      port: 22
+      targetPort: 22
