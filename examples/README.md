@@ -23,6 +23,7 @@ orcinus deploy --wait          # picks up orcinus.yml automatically
 | [`traefik-middleware/`](./traefik-middleware/orcinus.yml) | **Traefik middlewares** — path prefix stripping (`x-orcinus-strip-prefix`) + attaching rate-limit / headers / auth / redirect by name (`x-orcinus-middleware`). See [`../docs/INGRESS.md`](../docs/INGRESS.md). |
 | [`private-registry/`](./private-registry/orcinus.yml) | **Private image registry** — `orcinus secret create-registry` + `x-orcinus-image-pull-secret`. See [`../docs/REGISTRY.md`](../docs/REGISTRY.md). |
 | [`placement/`](./placement/orcinus.yml) | **Placement & node constraints** — Swarm `deploy.placement` → nodeAffinity/topologySpread + `orcinus node label`. See [`../docs/USAGE.md`](../docs/USAGE.md#8-placement--node-constraints). |
+| [`kubevirt/`](./kubevirt/orcinus.yml) | **Virtual machines next to containers** (KubeVirt) — a container + Ubuntu/Fedora VMs reachable by Service DNS. Plus [`distros.yml`](./kubevirt/distros.yml) (a stopped Ubuntu/Fedora/Debian/CentOS/Alma/openSUSE catalog) and [`cdi-datavolume.yml`](./kubevirt/cdi-datavolume.yml) (persistent disk via CDI). See [`../docs/PLUGINS.md`](../docs/PLUGINS.md#virtual-machines-kubevirt). |
 
 Single-file basics also live here: [`orcinus.yml`](./orcinus.yml) and
 [`docker-compose.yml`](./docker-compose.yml).

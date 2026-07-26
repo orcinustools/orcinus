@@ -146,29 +146,40 @@ orcinus plugin install kubevirt --cdi         # + CDI, for disk images from URLs
   `orcinus kubectl -n kubevirt get kubevirt kubevirt -o jsonpath='{.status.phase}'`
   (`Deployed` when the control plane is up).
 
-A VM is a plain manifest, so `orcinus deploy -f` applies it:
+A VM is a plain manifest, so `orcinus deploy -f` applies it — and a compose
+service and a VM can live in the same file:
 
 ```yaml
 # vm.yml
 apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
-  name: cirros
+  name: ubuntu
 spec:
-  runStrategy: Always
+  runStrategy: Always                # Halted = defined but not started
   template:
+    metadata:
+      labels:
+        app: ubuntu                  # copied to the VMI's pod → Service selector
     spec:
       domain:
         memory:
-          guest: 256Mi
+          guest: 1Gi
         devices:
+          rng: {}                    # virtio-rng: cloud-init won't stall on entropy
           disks:
-            - name: containerdisk
+            - name: rootdisk
               disk: { bus: virtio }
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
       volumes:
-        - name: containerdisk
+        - name: rootdisk
           containerDisk:
-            image: quay.io/kubevirt/cirros-container-disk-demo
+            image: quay.io/containerdisks/ubuntu:24.04
 ```
 
 ```bash
@@ -176,7 +187,39 @@ orcinus deploy -f vm.yml
 orcinus kubectl get vmi                       # the running VM instance
 ```
 
-Console/VNC access needs upstream `virtctl` (`virtctl console cirros`).
+Point a normal `Service` at the pod labels above and containers reach the VM by
+DNS name, like any other backend.
+
+**Disk options.** A `containerDisk` boots the cloud image from a registry with a
+throwaway overlay — nothing to provision, but **writes are lost on restart**. For a
+persistent disk, install with `--cdi` and use a `DataVolume` (imported once into a
+PVC).
+
+**Distro images.** [`quay.io/containerdisks`](https://quay.io/organization/containerdisks)
+publishes maintained multi-arch (amd64/arm64) cloud images — swap the one line:
+
+| Image | Tags |
+|---|---|
+| `quay.io/containerdisks/ubuntu` | `22.04`, `24.04` |
+| `quay.io/containerdisks/fedora` | `40` … `44` |
+| `quay.io/containerdisks/debian` | `11`, `12`, `13` |
+| `quay.io/containerdisks/centos-stream` | `9`, `10` |
+| `quay.io/containerdisks/almalinux` | `9`, `10` |
+| `quay.io/containerdisks/opensuse-leap` | `15.6`, `16.0` |
+
+(also `opensuse-tumbleweed`, `opensuse-microos`, `centos`.) Give each guest a login
+with a `cloudInitNoCloud` volume — an explicit `users:` block works the same on
+every distro, so you don't need each image's default account.
+
+Console/VNC access needs upstream `virtctl` (`virtctl console ubuntu`), which is
+also how you start/stop a `Halted` VM (`virtctl start ubuntu`); without it, patch
+`spec.runStrategy`.
+
+Runnable: [`examples/kubevirt`](../examples/kubevirt/orcinus.yml) — a container +
+Ubuntu/Fedora VMs on one network, a six-distro catalog
+([`distros.yml`](../examples/kubevirt/distros.yml)), and a persistent-disk VM
+serving HTTP through a Service
+([`cdi-datavolume.yml`](../examples/kubevirt/cdi-datavolume.yml)).
 
 `orcinus plugin remove kubevirt` deletes the `KubeVirt` CR first, then the
 operator — give the CR's finalizer a moment before re-installing.
