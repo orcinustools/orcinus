@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/kubernetes/kompose v1.36.0
+	github.com/safchain/ethtool v0.7.0
 	github.com/spf13/cobra v1.10.2
 	k8s.io/api v0.31.2
 	k8s.io/apimachinery v0.31.2

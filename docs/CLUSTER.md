@@ -302,6 +302,11 @@ can be omitted.
 - **Cross-host ports.** Allow between the hosts: `6443/tcp` to the master,
   `8472/udp` (flannel VXLAN) and `10250/tcp` (kubelet) between all nodes. If
   pods on different nodes can't reach each other, check `8472/udp` first.
+- **VXLAN checksum offload.** NATed VXLAN (a node container publishing
+  `8472/udp`) corrupts offloaded TCP checksums — cross-node ping works but TCP
+  hangs. orcinus disables the offload automatically on cross-host nodes; if you
+  ever hit the symptom (e.g. after recreating a node container by hand), run
+  `ethtool -K flannel.1 tx-checksum-ip-generic off` inside the node's netns.
 - **Security.** The join token grants cluster membership — treat it as a secret,
   and only expose the API to networks you trust.
 - **Workers don't need the datastore.** Only masters care about the datastore;

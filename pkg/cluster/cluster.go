@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -180,6 +181,9 @@ func Init(o InitOptions) (*InitResult, error) {
 	if !exists {
 		enableMetrics(o.Name, o.Advertise != "")
 	}
+	if o.Advertise != "" {
+		applyVXLANChecksumFix(o.Name)
+	}
 
 	// Extract & rewrite kubeconfig for host access.
 	raw, err := docker("exec", o.Name, "cat", "/etc/rancher/k3s/k3s.yaml")
@@ -329,7 +333,31 @@ func Join(o JoinOptions) error {
 	if out, err := docker(args...); err != nil {
 		return fmt.Errorf("start %s node: %w\n%s", o.Role, err, out)
 	}
+	if crossHost {
+		applyVXLANChecksumFix(o.Name)
+	}
 	return nil
+}
+
+// applyVXLANChecksumFix disables TX checksum offload on the node's flannel
+// VXLAN interface. Offloaded inner checksums are corrupted when the outer UDP
+// traverses the published-port NAT, which silently kills every cross-node TCP
+// connection (ICMP keeps working). The k3s image ships no ethtool, so this
+// copies the (static) orcinus binary into the container and runs the hidden
+// `cluster netfix` command there, detached — it waits for flannel.1 to appear
+// and then flips the offload bit. Best-effort, like enableMetrics.
+func applyVXLANChecksumFix(name string) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if _, err := docker("cp", self, name+":/tmp/orcinus"); err != nil {
+		return
+	}
+	_, _ = docker("exec", "-d", name, "/tmp/orcinus", "cluster", "netfix", "flannel.1")
 }
 
 // StatusResult describes the current cluster.
