@@ -40,6 +40,14 @@ For the full command/flag reference see [`USAGE.md`](./USAGE.md).
 - **Reachability.** By default the API is published on `127.0.0.1` (safe, local
   only). For nodes on **other hosts** to join, the first master must be started
   with `--advertise <ip-or-host>` so the address is reachable and in the TLS cert.
+- **Cross-host networking (docker provider).** With `--advertise` set, each node
+  publishes the ports the rest of the cluster needs to reach it: `8472/udp`
+  (flannel VXLAN, pod-to-pod across nodes) and `10250/tcp` (kubelet: logs, exec,
+  metrics), plus `6443/tcp` on the master. Nodes advertise the **host's** address
+  (`join` auto-detects it from the route to the server; override with
+  `--advertise <this-host-ip>`), because the container's bridge IP only exists on
+  its own host. Open those ports between the hosts (e.g. firewalld/security
+  groups).
 
 ---
 
@@ -182,6 +190,13 @@ orcinus cluster join --role agent \
   --server https://10.0.0.10:6443 --token <token>
 ```
 
+The worker advertises its own host address automatically (the local IP on the
+route to the master); on hosts with several interfaces pick one explicitly with
+`--advertise <this-host-ip>`. Between the hosts, allow `6443/tcp` (to the
+master) and `8472/udp` + `10250/tcp` (between all nodes). One node per host —
+cross-host nodes advertise the host address, which a second node on the same
+host can't share.
+
 Deploy from the master (or anywhere with its kubeconfig):
 
 ```bash
@@ -196,10 +211,15 @@ Multiple control-plane nodes so the cluster survives losing a master, plus
 workers. Requires an HA datastore. Use an **odd number of masters** (3 or 5) so
 etcd keeps quorum.
 
+Masters on **different hosts** need the **standalone** runtime: with the docker
+provider, etcd peers would advertise container IPs the other hosts can't reach,
+so `join --role server` refuses a cross-host docker join. (Docker-provider
+masters still work for the all-on-one-host topology below.)
+
 **On the first master** — embedded etcd + advertise:
 
 ```bash
-orcinus cluster init --cluster-init --advertise 10.0.0.10
+sudo orcinus-standalone cluster init --runtime standalone --cluster-init --advertise 10.0.0.10
 ```
 
 Grab the token from its output (or reuse the printed join command).
@@ -207,11 +227,11 @@ Grab the token from its output (or reuse the printed join command).
 **On the 2nd and 3rd master hosts** — join as `server`:
 
 ```bash
-orcinus cluster join --role server \
+sudo orcinus-standalone cluster join --runtime standalone --role server \
   --server https://10.0.0.10:6443 --token <token>
 ```
 
-**On each worker host** — join as `agent`:
+**On each worker host** — join as `agent` (docker or standalone, either works):
 
 ```bash
 orcinus cluster join --role agent \
@@ -276,7 +296,12 @@ can be omitted.
   tolerate 2. Two masters give no fault tolerance.
 - **`--advertise` is required for cross-host joins.** Without it the API is
   loopback-only and only same-host agents can join. `--advertise` also opens the
-  bind to all interfaces and adds the address to the TLS certificate.
+  bind to all interfaces, adds the address to the TLS certificate, and switches
+  the docker provider into cross-host mode (nodes advertise host addresses and
+  publish `8472/udp` + `10250/tcp`).
+- **Cross-host ports.** Allow between the hosts: `6443/tcp` to the master,
+  `8472/udp` (flannel VXLAN) and `10250/tcp` (kubelet) between all nodes. If
+  pods on different nodes can't reach each other, check `8472/udp` first.
 - **Security.** The join token grants cluster membership — treat it as a secret,
   and only expose the API to networks you trust.
 - **Workers don't need the datastore.** Only masters care about the datastore;
