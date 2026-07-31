@@ -151,6 +151,35 @@ paths:
                   pods:
                     type: array
                     items: { $ref: "#/components/schemas/PodInfo" }
+  /api/v1/projects/{project}/config:
+    get:
+      tags: [projects]
+      summary: Read a project's live configuration, or export it
+      description: |
+        Reads back every orcinus-owned object of the project. `format=summary`
+        gives a human-readable overview, `k8s` a re-appliable multi-document
+        manifest stream, `orcinus` an orcinus.yml rebuilt from the deployed
+        workloads. Secret values are always redacted on this endpoint.
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+        - name: format
+          in: query
+          schema: { type: string, enum: [summary, k8s, orcinus], default: summary }
+      responses:
+        "200":
+          description: project configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  namespace: { type: string }
+                  resources: { type: integer }
+                  format: { type: string }
+                  config: { type: string, description: the rendered configuration }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/projects/{project}/services/{service}/scale:
     post:
       tags: [projects]

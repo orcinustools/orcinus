@@ -46,6 +46,7 @@ func NewRootCmd() *cobra.Command {
 	)
 	addGrouped("apps",
 		newDeployCmd(),
+		newConfigCmd(),
 		newRmCmd(),
 		newLsCmd(),
 		newPsCmd(),
