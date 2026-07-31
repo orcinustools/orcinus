@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -103,6 +104,42 @@ func builtinTools() []tool {
 					return "", err
 				}
 				return toJSON(pods), nil
+			},
+		},
+		{
+			Name:        "project_config",
+			Description: "Read a deployed project's live configuration; export it as Kubernetes manifests or as an orcinus.yml.",
+			Schema: obj(map[string]any{
+				"project":   str("project name"),
+				"namespace": str("namespace (default: default)"),
+				"format":    str("summary | k8s | orcinus (default: summary)"),
+			}, "project"),
+			Handle: func(s *Server, ctx context.Context, a map[string]any) (string, error) {
+				ap, err := s.applier()
+				if err != nil {
+					return "", err
+				}
+				pc, err := ap.ProjectConfig(ctx, argStr(a, "project"), nsOrDefault(a))
+				if err != nil {
+					return "", err
+				}
+				switch orDefault(argStr(a, "format"), "summary") {
+				case "summary":
+					var buf bytes.Buffer
+					if err := pc.WriteSummary(&buf); err != nil {
+						return "", err
+					}
+					return buf.String(), nil
+				case "k8s", "kubernetes":
+					// Secrets stay redacted: an agent transcript is not a vault.
+					b, err := pc.RenderK8s(false)
+					return string(b), err
+				case "orcinus", "compose":
+					b, err := pc.RenderCompose()
+					return string(b), err
+				default:
+					return "", fmt.Errorf("unknown format %q: use summary, k8s, or orcinus", argStr(a, "format"))
+				}
 			},
 		},
 		{

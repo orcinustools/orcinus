@@ -41,6 +41,7 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.19 `describe`](#519-orcinus-describe)
   - [5.20 `update`](#520-orcinus-update)
   - [5.21 `restart`](#521-orcinus-restart)
+  - [5.22 `config`](#522-orcinus-config)
 - [6. Datastore](#6-datastore)
 - [7. Volumes & storage](#7-volumes--storage)
 - [8. Placement & node constraints](#8-placement--node-constraints)
@@ -63,6 +64,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Inspect the cluster | `orcinus cluster status` |
 | Tear the cluster down | `orcinus cluster down` |
 | Deploy an app | `orcinus deploy` |
+| See / export a deployed app's config | `orcinus config <project>` |
 | Remove an app | `orcinus rm <project>` |
 | List apps | `orcinus ls` |
 | List an app's pods | `orcinus ps <project>` |
@@ -729,6 +731,53 @@ a single replica does go briefly down while its one pod is replaced; scale to 2
 first if that matters.
 
 Verify with `orcinus ps <project>` — the restarted pods show a fresh AGE.
+
+### 5.22 `orcinus config`
+
+Read back what a project actually looks like on the cluster, and export it.
+
+```
+orcinus config [project] [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o, --format <fmt>` | `summary` | `summary` \| `k8s` \| `orcinus` |
+| `-n, --namespace <ns>` | `default` | Namespace |
+| `--show-secrets` | `false` | Include Secret values in `k8s` output instead of redacting them |
+| `--kubeconfig <path>` | auto | Target cluster (see [§3.3](#33-kubeconfig-resolution)) |
+
+With no project argument the current directory name is used, the same default
+as `deploy`.
+
+```bash
+orcinus config                        # summary of the project in this directory
+orcinus config myapp -o k8s > k8s.yaml    # re-appliable manifests
+orcinus config myapp -o orcinus > orcinus.yml  # rebuild a compose file
+```
+
+The **cluster** is the source of truth here, not your compose file, so this
+also shows drift someone applied with kubectl.
+
+The three formats:
+
+- **`summary`** — one row per workload (kind, image, ready/desired replicas,
+  ports, volumes), then the supporting objects by kind.
+- **`k8s`** — the live objects as a multi-document YAML stream, stripped of
+  what belongs to this cluster only (`resourceVersion`, `uid`, `status`,
+  `clusterIP`, the bound `volumeName`, …) so it can be applied elsewhere.
+- **`orcinus`** — an `orcinus.yml` rebuilt from the deployed workloads:
+  image, command, environment, ports, volumes, replicas, resource limits,
+  and the `x-orcinus-*` keys for controller kind, volume size and ingress.
+
+`orcinus` output is **best-effort, not a round-trip guarantee** — a cluster
+holds more than compose can express. Anything dropped is listed as a `# note:`
+comment in the header of the output itself, for example an env var that comes
+from a `secretKeyRef`, or a pod with more than one container.
+
+Secret values are redacted in `k8s` output unless `--show-secrets` is passed;
+redacted output is no longer re-appliable as-is. The MCP tool and the HTTP API
+expose the same command but always redact.
 
 ---
 

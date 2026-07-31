@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -155,6 +157,53 @@ func (s *Server) handleProjectPods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"pods": pods})
+}
+
+// handleProjectConfig reads back a project's live configuration. `format`
+// selects the representation; k8s output keeps Secret values redacted, since
+// this endpoint is a read API and not a way to exfiltrate credentials.
+func (s *Server) handleProjectConfig(w http.ResponseWriter, r *http.Request) {
+	a, err := s.applier()
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	cfg, err := a.ProjectConfig(r.Context(), r.PathValue("project"), namespaceOrDefault(r))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "summary"
+	}
+	var body []byte
+	switch format {
+	case "summary":
+		var buf bytes.Buffer
+		if err = cfg.WriteSummary(&buf); err == nil {
+			body = buf.Bytes()
+		}
+	case "k8s", "kubernetes":
+		body, err = cfg.RenderK8s(false)
+	case "orcinus", "compose":
+		body, err = cfg.RenderCompose()
+	default:
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("unknown format %q: use summary, k8s, or orcinus", format))
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"project":   cfg.Project,
+		"namespace": cfg.Namespace,
+		"resources": len(cfg.Items),
+		"format":    format,
+		"config":    string(body),
+	})
 }
 
 func (s *Server) handleRemoveProject(w http.ResponseWriter, r *http.Request) {
