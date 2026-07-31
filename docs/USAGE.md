@@ -38,6 +38,9 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.16 `version`](#516-orcinus-version)
   - [5.17 `completion`](#517-orcinus-completion)
   - [5.18 `node`](#518-orcinus-node)
+  - [5.19 `describe`](#519-orcinus-describe)
+  - [5.20 `update`](#520-orcinus-update)
+  - [5.21 `restart`](#521-orcinus-restart)
 - [6. Datastore](#6-datastore)
 - [7. Volumes & storage](#7-volumes--storage)
 - [8. Placement & node constraints](#8-placement--node-constraints)
@@ -67,6 +70,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Tail logs | `orcinus logs <service>` |
 | Scale a service | `orcinus scale <service> <replicas>` |
 | Autoscale a service | `orcinus autoscale <service> --max N` |
+| Restart a service's pods | `orcinus restart <service>` |
 | Roll back a bad release | `orcinus rollback <service>` |
 | Manage secrets / TLS certs | `orcinus secret create[-tls] …` |
 | Add a cluster add-on | `orcinus plugin install <name>` |
@@ -311,6 +315,7 @@ orcinus deploy [flags]
 | `--dry-run` | `false` | Render instead of applying |
 | `-o, --output <dir>` | — | Also write converted manifests to a directory |
 | `--prune` | `true` | Remove owned resources no longer in the input |
+| `--prune-pvc` | `false` | Also delete the PersistentVolumeClaims of removed services — **destroys their data** |
 | `--wait` | `false` | Wait until workloads are ready |
 | `--acme-email <email>` | — | Auto-install cert-manager when `x-orcinus-tls` is used |
 | `--replicas <n>` | `1` | Default replicas when a service specifies none |
@@ -329,6 +334,24 @@ orcinus deploy -f docker-compose.yml --dry-run -o out/   # write manifests to a 
 
 > Convert-only workflow: `deploy --dry-run [-o dir]` replaces a separate
 > `convert` command.
+
+#### Prune never deletes data by default
+
+Prune removes owned resources that left the input, but it **leaves
+PersistentVolumeClaims alone**. Drop a service from the file and its
+Deployment, Service and Ingress go away while its volumes stay, so adding the
+service back picks the data up again. Deploying is safe to repeat on a project
+that owns data.
+
+Ask for a clean sweep when you actually want the volumes gone:
+
+```bash
+orcinus deploy --prune-pvc          # also delete claims of removed services
+```
+
+Even then, claims created by a StatefulSet `volumeClaimTemplate` are never
+pruned — see [Appendix D](#appendix-d--exit-codes--behavior). `orcinus rm
+<project>` deletes everything a project owns, volumes included.
 
 #### Deployment strategies
 
@@ -677,6 +700,36 @@ orcinus update --version 2.3.0
 The standalone build is auto-detected when the running binary is named
 `orcinus-standalone`; pass `--standalone` to force it.
 
+### 5.21 `orcinus restart`
+
+Roll every pod of a service, like `kubectl rollout restart`.
+
+```
+orcinus restart <service> [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-n, --namespace <ns>` | `default` | Namespace |
+| `--kubeconfig <path>` | auto | Target cluster (see [§3.3](#33-kubeconfig-resolution)) |
+
+```bash
+orcinus restart web
+orcinus restart redis -n data
+```
+
+The workload's spec is not touched — only its pod template is re-stamped with a
+`kubectl.kubernetes.io/restartedAt` annotation, so the controller replaces the
+pods through its normal rolling update. Use it to pick up a changed
+Secret/ConfigMap, re-pull a moving image tag (`:latest`), or clear a wedged
+process. Volumes are never affected.
+
+Works on a Deployment, StatefulSet, DaemonSet, or Argo Rollout. A service with
+a single replica does go briefly down while its one pod is replaced; scale to 2
+first if that matters.
+
+Verify with `orcinus ps <project>` — the restarted pods show a fresh AGE.
+
 ---
 
 ## 6. Datastore
@@ -979,6 +1032,14 @@ This produces two Ingresses (`app.local`, `api.local`) with no duplication.
   idempotent and safe to re-run.
 - `--prune` only removes resources within the current `--project` scope; it never
   prunes without a project.
+- `--prune` never deletes a PersistentVolumeClaim unless `--prune-pvc` is
+  passed. Prune is for tidying up, and data is not litter: a service removed
+  from the input keeps its volumes, so re-adding it picks the data back up.
+- Even with `--prune-pvc`, a claim created by a StatefulSet
+  `volumeClaimTemplate` (`<volume>-<service>-<ordinal>`) is never pruned. Those
+  claims are made by the StatefulSet controller, so they are not part of the
+  applied input, but deleting one destroys the volume the next time the pod
+  restarts. `orcinus rm <project>` is the way to delete them on purpose.
 - `deploy` writes progress notes (e.g. `using orcinus.yml`, `applied N object(s)`)
   to **stderr**; rendered manifests (`--dry-run`) go to **stdout**, so
   `deploy --dry-run > out.yaml` is clean.

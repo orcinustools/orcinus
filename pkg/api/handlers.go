@@ -18,13 +18,14 @@ import (
 // request Content-Type is not JSON, the raw body is the source and options come
 // from query parameters.
 type DeployRequest struct {
-	Source    string `json:"source"`    // compose and/or manifest YAML (multi-doc ok)
-	Project   string `json:"project"`   // ownership label
-	Namespace string `json:"namespace"` // target namespace
-	Mode      string `json:"mode"`      // "" (auto) | compose | manifest
-	Replicas  int    `json:"replicas"`
-	PVCSize   string `json:"pvcSize"`
-	Prune     *bool    `json:"prune"` // default true
+	Source    string   `json:"source"`    // compose and/or manifest YAML (multi-doc ok)
+	Project   string   `json:"project"`   // ownership label
+	Namespace string   `json:"namespace"` // target namespace
+	Mode      string   `json:"mode"`      // "" (auto) | compose | manifest
+	Replicas  int      `json:"replicas"`
+	PVCSize   string   `json:"pvcSize"`
+	Prune     *bool    `json:"prune"`     // default true
+	PrunePVCs bool     `json:"prunePVCs"` // also prune PVCs of removed services (default false)
 	Wait      bool     `json:"wait"`
 	ACMEEmail string   `json:"acmeEmail"`
 	Profiles  []string `json:"profiles"` // compose profiles to activate
@@ -51,6 +52,7 @@ func (s *Server) parseDeployInput(r *http.Request) ([]byte, engine.Request, erro
 			Mode:      q.Get("mode"),
 			ACMEEmail: q.Get("acmeEmail"),
 			Wait:      q.Get("wait") == "true",
+			PrunePVCs: q.Get("prunePVCs") == "true",
 			Profiles:  q["profile"],
 		}
 		if q.Get("prune") == "false" {
@@ -76,6 +78,7 @@ func (s *Server) parseDeployInput(r *http.Request) ([]byte, engine.Request, erro
 		PVCSize:     dr.PVCSize,
 		Kubeconfig:  s.cfg.Kubeconfig,
 		Prune:       prune,
+		PrunePVCs:   dr.PrunePVCs,
 		Wait:        dr.Wait,
 		ACMEEmail:   dr.ACMEEmail,
 		Profiles:    dr.Profiles,
@@ -190,6 +193,20 @@ func (s *Server) handleScale(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"scaled": kind, "replicas": body.Replicas})
+}
+
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
+	a, err := s.applier()
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	kind, err := a.Restart(r.Context(), namespaceOrDefault(r), r.PathValue("service"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"restarted": kind})
 }
 
 func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {

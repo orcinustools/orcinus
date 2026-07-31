@@ -19,9 +19,9 @@ func obj(props map[string]any, required ...string) map[string]any {
 	}
 	return m
 }
-func str(desc string) map[string]any  { return map[string]any{"type": "string", "description": desc} }
+func str(desc string) map[string]any   { return map[string]any{"type": "string", "description": desc} }
 func boolp(desc string) map[string]any { return map[string]any{"type": "boolean", "description": desc} }
-func intp(desc string) map[string]any { return map[string]any{"type": "integer", "description": desc} }
+func intp(desc string) map[string]any  { return map[string]any{"type": "integer", "description": desc} }
 
 func nsOrDefault(a map[string]any) string {
 	if ns := argStr(a, "namespace"); ns != "" {
@@ -128,7 +128,7 @@ func builtinTools() []tool {
 			Handle: func(_ *Server, _ context.Context, _ map[string]any) (string, error) {
 				type pi struct {
 					Name, Description, Version string
-					Installed                 bool
+					Installed                  bool
 				}
 				var out []pi
 				for _, p := range plugin.List() {
@@ -162,6 +162,7 @@ func builtinTools() []tool {
 				"namespace": str("target namespace"),
 				"wait":      boolp("wait until workloads are ready"),
 				"prune":     boolp("remove owned resources no longer present (default true)"),
+				"prunePVCs": boolp("also delete the PersistentVolumeClaims of removed services (default false, destroys data)"),
 			}, "source"),
 			Handle: func(s *Server, ctx context.Context, a map[string]any) (string, error) {
 				prune := true
@@ -170,7 +171,8 @@ func builtinTools() []tool {
 				}
 				req := engine.Request{
 					Project: orDefault(argStr(a, "project"), "default"), Namespace: argStr(a, "namespace"),
-					Kubeconfig: s.kubeconfig, Prune: prune, Wait: argBool(a, "wait"), AutoInstall: true,
+					Kubeconfig: s.kubeconfig, Prune: prune, PrunePVCs: argBool(a, "prunePVCs"),
+					Wait: argBool(a, "wait"), AutoInstall: true,
 				}
 				applied, installed, err := engine.Deploy(ctx, [][]byte{[]byte(argStr(a, "source"))}, req)
 				if err != nil {
@@ -215,6 +217,23 @@ func builtinTools() []tool {
 					return "", err
 				}
 				return fmt.Sprintf("scaled %s to %d", kind, n), nil
+			},
+		},
+		{
+			Name:        "restart",
+			Description: "Restart a service's pods (rolling; the spec is unchanged).",
+			Write:       true,
+			Schema:      obj(map[string]any{"service": str("service name"), "namespace": str("namespace")}, "service"),
+			Handle: func(s *Server, ctx context.Context, a map[string]any) (string, error) {
+				ap, err := s.applier()
+				if err != nil {
+					return "", err
+				}
+				kind, err := ap.Restart(ctx, nsOrDefault(a), argStr(a, "service"))
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("restarted %s %q", kind, argStr(a, "service")), nil
 			},
 		},
 		{
