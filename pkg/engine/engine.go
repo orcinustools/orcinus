@@ -33,6 +33,7 @@ type Request struct {
 	BaseDir     string   // dir to resolve relative bind-mount/config/secret file paths
 	Kubeconfig  string
 	Prune       bool
+	PrunePVCs   bool // let prune delete PersistentVolumeClaims too (--prune-pvc)
 	Wait        bool
 	WaitTimeout time.Duration
 	ACMEEmail   string // enables auto-installing cert-manager for x-orcinus-tls
@@ -158,6 +159,7 @@ func Apply(ctx context.Context, objects []runtime.Object, req Request) (int, err
 		Project:          req.Project,
 		DefaultNamespace: req.Namespace,
 		Prune:            req.Prune,
+		PrunePVCs:        req.PrunePVCs,
 		Wait:             req.Wait,
 		WaitTimeout:      req.WaitTimeout,
 	})

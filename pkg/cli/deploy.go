@@ -26,6 +26,7 @@ type deployOpts struct {
 	pvcSize    string
 	kubeconfig string
 	prune      bool
+	prunePVC   bool
 	wait       bool
 	acmeEmail  string
 	profiles   []string
@@ -51,6 +52,7 @@ func newDeployCmd() *cobra.Command {
 	f.StringVar(&o.pvcSize, "pvc-size", "1Gi", "default PersistentVolumeClaim size")
 	f.StringVar(&o.kubeconfig, "kubeconfig", "", "path to kubeconfig (default: ~/.orcinus/kubeconfig, $KUBECONFIG, or ~/.kube/config)")
 	f.BoolVar(&o.prune, "prune", true, "remove owned resources no longer present in the input")
+	f.BoolVar(&o.prunePVC, "prune-pvc", false, "also delete the PersistentVolumeClaims of services no longer in the input (destroys their data)")
 	f.BoolVar(&o.wait, "wait", false, "wait until workloads are ready")
 	f.StringVar(&o.acmeEmail, "acme-email", "", "email for auto-installing cert-manager when x-orcinus-tls is used")
 	f.StringArrayVar(&o.profiles, "profile", nil, "compose profile to activate (repeatable)")
@@ -101,6 +103,7 @@ func runDeploy(cmd *cobra.Command, o *deployOpts) error {
 		PVCSize:     o.pvcSize,
 		Kubeconfig:  o.kubeconfig,
 		Prune:       o.prune,
+		PrunePVCs:   o.prunePVC,
 		Wait:        o.wait,
 		ACMEEmail:   o.acmeEmail,
 		Profiles:    o.profiles,
@@ -194,4 +197,3 @@ func readURL(url string) ([]byte, error) {
 	}
 	return io.ReadAll(resp.Body)
 }
-

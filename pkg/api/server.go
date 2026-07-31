@@ -48,6 +48,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{project}/pods", s.handleProjectPods)
 	mux.HandleFunc("DELETE /api/v1/projects/{project}", s.handleRemoveProject)
 	mux.HandleFunc("POST /api/v1/projects/{project}/services/{service}/scale", s.handleScale)
+	mux.HandleFunc("POST /api/v1/projects/{project}/services/{service}/restart", s.handleRestart)
 	mux.HandleFunc("POST /api/v1/projects/{project}/services/{service}/rollback", s.handleRollback)
 	mux.HandleFunc("GET /api/v1/secrets", s.handleListSecrets)
 	mux.HandleFunc("POST /api/v1/secrets", s.handleCreateSecret)

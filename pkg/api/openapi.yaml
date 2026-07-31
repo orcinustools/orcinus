@@ -177,6 +177,22 @@ paths:
                 properties:
                   scaled: { type: string }
                   replicas: { type: integer }
+  /api/v1/projects/{project}/services/{service}/restart:
+    post:
+      tags: [projects]
+      summary: Restart a service's pods (rolling; the spec is unchanged)
+      parameters:
+        - { name: project, in: path, required: true, schema: { type: string } }
+        - { name: service, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: restarted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { restarted: { type: string, description: the kind that was restarted } }
   /api/v1/projects/{project}/services/{service}/rollback:
     post:
       tags: [projects]
@@ -348,6 +364,7 @@ components:
         replicas: { type: integer }
         pvcSize: { type: string, example: 1Gi }
         prune: { type: boolean, default: true }
+        prunePVCs: { type: boolean, default: false, description: also delete the PersistentVolumeClaims of removed services (destroys their data) }
         wait: { type: boolean }
         acmeEmail: { type: string }
         profiles: { type: array, items: { type: string }, description: compose profiles to activate }

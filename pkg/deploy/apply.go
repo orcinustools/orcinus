@@ -10,9 +10,9 @@ import (
 
 	"github.com/orcinustools/orcinus/pkg/compose"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
@@ -49,8 +49,13 @@ type ApplyOptions struct {
 	Project          string
 	DefaultNamespace string
 	Prune            bool
-	Wait             bool
-	WaitTimeout      time.Duration
+	// PrunePVCs opts into deleting PersistentVolumeClaims that left the input.
+	// Off by default: prune is meant to tidy up, and data is not litter — a
+	// dropped service keeps its volumes unless the caller asks for a clean sweep
+	// (`orcinus deploy --prune-pvc`).
+	PrunePVCs   bool
+	Wait        bool
+	WaitTimeout time.Duration
 }
 
 // LoadRESTConfig resolves a *rest.Config from, in order: an explicit path,
@@ -214,7 +219,7 @@ func (a *Applier) Apply(ctx context.Context, objects []runtime.Object, opts Appl
 	}
 
 	if opts.Prune {
-		if err := a.prune(ctx, applied, opts.Project, ns); err != nil {
+		if err := a.prune(ctx, applied, opts, ns); err != nil {
 			return applied, fmt.Errorf("prune: %w", err)
 		}
 	}
@@ -238,10 +243,14 @@ var prunableGVRs = []schema.GroupVersionResource{
 	{Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
 }
 
+// pvcGVR is the PersistentVolumeClaim resource, singled out during prune
+// because StatefulSet-managed claims need protecting (see claimPrefixes).
+var pvcGVR = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "persistentvolumeclaims"}
+
 // prune deletes owned resources (managed-by=orcinus, project=<project>) that are
 // not part of the just-applied set. Requires a project scope for safety.
-func (a *Applier) prune(ctx context.Context, applied []AppliedRef, project, ns string) error {
-	if project == "" {
+func (a *Applier) prune(ctx context.Context, applied []AppliedRef, opts ApplyOptions, ns string) error {
+	if opts.Project == "" {
 		return nil // never prune without a project scope
 	}
 	keep := map[string]bool{}
@@ -249,9 +258,16 @@ func (a *Applier) prune(ctx context.Context, applied []AppliedRef, project, ns s
 		keep[key(r.GVR, r.Namespace, r.Name)] = true
 	}
 	selector := fmt.Sprintf("%s=%s,%s=%s",
-		compose.LabelManagedBy, compose.ManagedByValue, compose.LabelProject, project)
+		compose.LabelManagedBy, compose.ManagedByValue, compose.LabelProject, opts.Project)
+
+	// Collected up front: statefulsets are pruned before PVCs below, and a
+	// deleted StatefulSet can no longer vouch for the claims it left behind.
+	stsClaims := a.claimPrefixes(ctx, ns)
 
 	for _, gvr := range prunableGVRs {
+		if gvr == pvcGVR && !opts.PrunePVCs {
+			continue
+		}
 		list, err := a.dyn.Resource(gvr).Namespace(ns).List(ctx, metav1.ListOptions{LabelSelector: selector})
 		if err != nil {
 			continue // resource type may not exist on this cluster
@@ -261,11 +277,63 @@ func (a *Applier) prune(ctx context.Context, applied []AppliedRef, project, ns s
 			if keep[key(gvr, item.GetNamespace(), item.GetName())] {
 				continue
 			}
+			if gvr == pvcGVR && isStatefulSetClaim(item.GetName(), stsClaims) {
+				continue
+			}
 			_ = a.dyn.Resource(gvr).Namespace(item.GetNamespace()).
 				Delete(ctx, item.GetName(), metav1.DeleteOptions{})
 		}
 	}
 	return nil
+}
+
+// claimPrefixes returns a "<template>-<statefulset>-" prefix for every
+// volumeClaimTemplate of every StatefulSet in ns.
+//
+// The StatefulSet controller creates those PVCs itself, so they carry the
+// ownership labels copied from the template but never appear in orcinus'
+// applied set — to prune they look like orphans. Deleting one is silent data
+// loss: the pvc-protection finalizer holds it in Terminating while the pod
+// runs, then the volume disappears at the next restart.
+//
+// Every StatefulSet in the namespace is consulted, not just this project's: a
+// claim that some workload still mounts is never safe to prune.
+func (a *Applier) claimPrefixes(ctx context.Context, ns string) []string {
+	gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
+	list, err := a.dyn.Resource(gvr).Namespace(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	var prefixes []string
+	for i := range list.Items {
+		sts := &list.Items[i]
+		templates, _, _ := unstructured.NestedSlice(sts.Object, "spec", "volumeClaimTemplates")
+		for _, t := range templates {
+			tm, ok := t.(map[string]any)
+			if !ok {
+				continue
+			}
+			if name, _, _ := unstructured.NestedString(tm, "metadata", "name"); name != "" {
+				prefixes = append(prefixes, name+"-"+sts.GetName()+"-")
+			}
+		}
+	}
+	return prefixes
+}
+
+// isStatefulSetClaim reports whether name is "<prefix><ordinal>" for one of the
+// prefixes, which is how the StatefulSet controller names generated claims.
+func isStatefulSetClaim(name string, prefixes []string) bool {
+	for _, p := range prefixes {
+		ordinal, found := strings.CutPrefix(name, p)
+		if !found || ordinal == "" {
+			continue
+		}
+		if strings.IndexFunc(ordinal, func(r rune) bool { return r < '0' || r > '9' }) < 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // RemoveProject deletes every owned resource of a project (backs `orcinus rm`).
