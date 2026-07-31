@@ -87,6 +87,9 @@ func cleanForExport(u *unstructured.Unstructured) {
 	for _, f := range [][]string{
 		{"metadata", "generation"},
 		{"metadata", "ownerReferences"},
+		// Finalizers are the cluster's own deletion bookkeeping. Carrying
+		// pvc-protection into a fresh manifest is meaningless at best.
+		{"metadata", "finalizers"},
 		{"metadata", "annotations", "kubectl.kubernetes.io/last-applied-configuration"},
 		{"metadata", "annotations", "deployment.kubernetes.io/revision"},
 		{"spec", "template", "metadata", "creationTimestamp"},
@@ -97,6 +100,20 @@ func cleanForExport(u *unstructured.Unstructured) {
 		{"spec", "volumeName"},
 	} {
 		unstructured.RemoveNestedField(u.Object, f...)
+	}
+
+	// Volume binding state names a PV, a provisioner and a node of *this*
+	// cluster. `volume.kubernetes.io/selected-node` is the dangerous one: applied
+	// elsewhere it pins the claim to a node that may not exist.
+	if anns := u.GetAnnotations(); len(anns) > 0 {
+		for k := range anns {
+			if strings.HasPrefix(k, "pv.kubernetes.io/") ||
+				strings.HasPrefix(k, "volume.kubernetes.io/") ||
+				strings.HasPrefix(k, "volume.beta.kubernetes.io/") {
+				delete(anns, k)
+			}
+		}
+		u.SetAnnotations(anns)
 	}
 	if anns := u.GetAnnotations(); len(anns) == 0 {
 		unstructured.RemoveNestedField(u.Object, "metadata", "annotations")

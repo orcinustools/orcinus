@@ -96,6 +96,30 @@ func ingressObj(name, host, backend string) *unstructured.Unstructured {
 	}}
 }
 
+// boundPVC is what a cluster hands back for a provisioned claim: finalizers
+// plus binding annotations naming this cluster's PV, provisioner and node.
+func boundPVC(name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1", "kind": "PersistentVolumeClaim",
+		"metadata": map[string]any{
+			"name": name, "namespace": testNS, "labels": ownedLabels(),
+			"finalizers": []any{"kubernetes.io/pvc-protection"},
+			"annotations": map[string]any{
+				"pv.kubernetes.io/bind-completed":               "yes",
+				"pv.kubernetes.io/bound-by-controller":          "yes",
+				"volume.kubernetes.io/selected-node":            "node-a",
+				"volume.beta.kubernetes.io/storage-provisioner": "rancher.io/local-path",
+				"orcinus.io/keep":                               "this one is ours",
+			},
+		},
+		"spec": map[string]any{
+			"volumeName":       "pvc-0ddd48e5",
+			"storageClassName": "local-path",
+			"resources":        map[string]any{"requests": map[string]any{"storage": "2Gi"}},
+		},
+	}}
+}
+
 func secretObj(name string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "v1", "kind": "Secret",
@@ -109,6 +133,7 @@ func fullProject() *Applier {
 		webDeployment(), redisStatefulSet(),
 		svcObj("web", 80, 8080), svcObj("redis", 6379, 6379),
 		ingressObj("web", "web.local", "web"), secretObj("db-secret"),
+		boundPVC("redisdata"),
 	)
 }
 
@@ -119,8 +144,8 @@ func TestProjectConfigCollectsOwnedResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProjectConfig: %v", err)
 	}
-	if len(cfg.Items) != 6 {
-		t.Fatalf("collected %d resources, want 6", len(cfg.Items))
+	if len(cfg.Items) != 7 {
+		t.Fatalf("collected %d resources, want 7", len(cfg.Items))
 	}
 	if cfg.Project != testProject || cfg.Namespace != testNS {
 		t.Errorf("got project %q ns %q", cfg.Project, cfg.Namespace)
@@ -151,6 +176,9 @@ func TestRenderK8sIsPortable(t *testing.T) {
 	for _, banned := range []string{
 		"resourceVersion", "uid: abc-123", "generation", "status:",
 		"clusterIP", "deployment.kubernetes.io/revision", "creationTimestamp",
+		// Volume binding state names this cluster's PV, provisioner and node.
+		"finalizers", "pvc-protection", "volumeName", "pv.kubernetes.io/",
+		"volume.kubernetes.io/selected-node", "storage-provisioner", "node-a",
 	} {
 		if strings.Contains(got, banned) {
 			t.Errorf("export still carries %q", banned)
@@ -159,8 +187,14 @@ func TestRenderK8sIsPortable(t *testing.T) {
 	if !strings.Contains(got, "kind: Deployment") || !strings.Contains(got, "kind: StatefulSet") {
 		t.Error("export lost a workload")
 	}
-	if n := strings.Count(got, "\n---\n"); n != 5 {
-		t.Errorf("got %d document separators, want 5 for 6 objects", n)
+	// Only the cluster's own bookkeeping goes: real config must survive.
+	for _, keep := range []string{"storageClassName: local-path", "orcinus.io/keep", "storage: 2Gi"} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("export dropped %q, which is real configuration", keep)
+		}
+	}
+	if n := strings.Count(got, "\n---\n"); n != 6 {
+		t.Errorf("got %d document separators, want 6 for 7 objects", n)
 	}
 	// Every document must still parse.
 	for _, doc := range strings.Split(got, "\n---\n") {
