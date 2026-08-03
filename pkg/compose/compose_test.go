@@ -1,10 +1,13 @@
 package compose
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sirupsen/logrus"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -1495,5 +1498,43 @@ secrets:
 	}
 	if got := envFromSecretNames(pod.Containers[0]); len(got) != 1 {
 		t.Errorf("envFrom secretRefs = %v, want the secret loaded as env too", got)
+	}
+}
+
+// TestConvertNamedVolumeIsQuiet: a named volume has no host path, so nothing
+// should try to stat one. The fork used to build a synthetic ":<target>"
+// mount path and stat that, warning "File don't exist" once per volume on
+// every single deploy — alarming, untrue, and impossible to act on.
+func TestConvertNamedVolumeIsQuiet(t *testing.T) {
+	var logs bytes.Buffer
+	prev := logrus.StandardLogger().Out
+	logrus.SetOutput(&logs)
+	t.Cleanup(func() { logrus.SetOutput(prev) })
+
+	objs := convertString(t, `
+services:
+  db:
+    image: postgres:16
+    volumes:
+      - data:/var/lib/postgresql/data
+volumes:
+  data:
+`)
+	// The volume still becomes a PVC — this is about the noise, not the output.
+	found := false
+	for _, o := range objs {
+		if _, ok := o.(*corev1.PersistentVolumeClaim); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("named volume did not produce a PersistentVolumeClaim")
+	}
+
+	out := logs.String()
+	for _, unwanted := range []string{"File don't exist", ":/var/lib/postgresql/data"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("conversion logged %q for a named volume:\n%s", unwanted, out)
+		}
 	}
 }

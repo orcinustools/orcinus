@@ -648,7 +648,10 @@ func (k *Kubernetes) CreateSecrets(komposeObject kobject.KomposeObject) ([]*api.
 			}
 			objects = append(objects, secret)
 		} else {
-			log.Warnf("External secrets %s is not currently supported - ignoring", name)
+			// `external: true` means the Secret already exists in the cluster,
+			// so there is nothing to create — the volume that mounts it still
+			// references it by name. Not a problem, and not ignored.
+			log.Infof("Secret %q is external: using the one in the cluster, not creating it", name)
 		}
 	}
 	return objects, nil
@@ -1009,13 +1012,18 @@ func (k *Kubernetes) ConfigVolumes(name string, service kobject.ServiceConfig) (
 	for _, volume := range service.Volumes {
 		// check if ro/rw mode is defined, default rw
 		readonly := len(volume.Mode) > 0 && (volume.Mode == "ro" || volume.Mode == "rox")
-		mountHost := volume.Host
-		if mountHost == "" {
-			mountHost = volume.MountPath
+		// Only a bind mount has a host path that could be a config file. A named
+		// or anonymous volume leaves Host empty, and MountPath is the synthetic
+		// "<host>:<container>" — ":/data" — so stating it warned about a path
+		// that cannot exist, once per volume on every deploy. Both return values
+		// were false in that case anyway, so this keeps the outcome and drops
+		// the noise.
+		useConfigMap, skip = false, false
+		if volume.Host != "" {
+			// return useconfigmap and readonly,
+			// not used asigned readonly because dont break e2e
+			useConfigMap, _, skip = isConfigFile(volume.Host)
 		}
-		// return useconfigmap and readonly,
-		// not used asigned readonly because dont break e2e
-		useConfigMap, _, skip = isConfigFile(mountHost)
 		if skip {
 			log.Warnf("Skip file in path %s ", volume.Host)
 			continue

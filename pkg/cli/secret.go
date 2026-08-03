@@ -286,10 +286,16 @@ a shared terminal. Pass --show-values to print them.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Name:\t%s\n", s.Name)
-			fmt.Fprintf(out, "Namespace:\t%s\n", s.Namespace)
-			fmt.Fprintf(out, "Type:\t%s\n", s.Type)
-			fmt.Fprintf(out, "Managed by orcinus:\t%t\n", s.ManagedBy)
+			// The header goes through the same tabwriter as the table below it,
+			// so the two line up instead of landing on the terminal's tab stops.
+			hw := tabwriter.NewWriter(out, 0, 2, 3, ' ', 0)
+			fmt.Fprintf(hw, "Name:\t%s\n", s.Name)
+			fmt.Fprintf(hw, "Namespace:\t%s\n", s.Namespace)
+			fmt.Fprintf(hw, "Type:\t%s\n", s.Type)
+			fmt.Fprintf(hw, "Managed by orcinus:\t%t\n", s.ManagedBy)
+			if err := hw.Flush(); err != nil {
+				return err
+			}
 
 			keys := s.KeyNames()
 			if len(keys) == 0 {
