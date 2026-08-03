@@ -296,7 +296,81 @@ paths:
                   namespace: { type: string }
                   server: { type: string }
         "400": { $ref: "#/components/responses/Error" }
+  /api/v1/secrets/tls:
+    post:
+      tags: [secrets]
+      summary: Create/update a TLS secret from an inline PEM cert + key
+      description: >
+        For a custom/BYO cert, referenced from compose with
+        `x-orcinus-tls-secret`. The CLI equivalent reads files
+        (`orcinus secret create-tls --cert --key`); over HTTP the PEM contents
+        are sent inline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TLSSecretRequest" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  namespace: { type: string }
+                  type: { type: string, example: kubernetes.io/tls }
+        "400": { $ref: "#/components/responses/Error" }
   /api/v1/secrets/{name}:
+    get:
+      tags: [secrets]
+      summary: Show a secret's keys (values only with showValues)
+      description: >
+        Keys are listed and values withheld unless `showValues=true`, so a
+        listing is safe to fetch without printing credentials. Mirrors
+        `orcinus secret get`.
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+        - { name: showValues, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: secret
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [secrets]
+      summary: Set keys on a secret, keeping the ones not named
+      description: >
+        Merges the given keys, unlike `POST /api/v1/secrets` which replaces the
+        data wholesale and drops keys it was not given. Creates the secret if it
+        does not exist. Mirrors `orcinus secret set`. Running pods keep the old
+        values until restarted, since env vars are injected at container start.
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SecretRequest" }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string }
+                  namespace: { type: string }
+                  set: { type: integer, description: keys written by this call }
+                  keys: { type: integer, description: total keys after the merge }
+                  note: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
     delete:
       tags: [secrets]
       summary: Delete a secret
@@ -416,11 +490,43 @@ components:
         Node: { type: string }
     SecretInfo:
       type: object
+      description: >
+        Field names are capitalised here for backwards compatibility; the rest
+        of the API uses camelCase.
       properties:
         Name: { type: string }
         Type: { type: string }
-        Keys: { type: integer }
+        Keys: { type: integer, description: number of keys }
+        KeyNames:
+          type: array
+          description: the key names themselves
+          items: { type: string }
         ManagedBy: { type: boolean }
+    SecretDetail:
+      type: object
+      properties:
+        name: { type: string }
+        namespace: { type: string }
+        type: { type: string, example: Opaque }
+        managedBy: { type: boolean }
+        keys:
+          type: array
+          items: { type: string }
+        values:
+          type: object
+          description: present only when showValues=true
+          additionalProperties: { type: string }
+        redacted:
+          type: boolean
+          description: present (true) when values were withheld
+    TLSSecretRequest:
+      type: object
+      required: [name, cert, key]
+      properties:
+        name: { type: string }
+        namespace: { type: string, default: default }
+        cert: { type: string, description: PEM certificate chain }
+        key: { type: string, description: PEM private key }
     SecretRequest:
       type: object
       required: [name, data]

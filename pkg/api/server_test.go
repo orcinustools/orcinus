@@ -1,14 +1,35 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
+// testServer builds the handler with a kubeconfig that cannot resolve, so every
+// cluster-touching route fails with 503 instead of reaching whatever cluster the
+// machine happens to point at. Without this, Config{Kubeconfig: ""} falls
+// through to $KUBECONFIG, then ~/.orcinus/kubeconfig — so a test that POSTs a
+// Secret writes it to the developer's real cluster.
 func testServer(token string) http.Handler {
-	return New(Config{Token: token}).Handler()
+	return New(Config{Token: token, Kubeconfig: unreachableKubeconfig}).Handler()
+}
+
+const unreachableKubeconfig = "/nonexistent/orcinus-test/kubeconfig"
+
+// TestTestServerCannotReachACluster guards the isolation the rest of this file
+// depends on: if applier() ever starts succeeding here, these tests are writing
+// to a real cluster.
+func TestTestServerCannotReachACluster(t *testing.T) {
+	h := testServer("")
+	req := httptest.NewRequest("GET", "/api/v1/secrets", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("GET /api/v1/secrets = %d, want 503; the test server can reach a cluster", rec.Code)
+	}
 }
 
 func TestHealthAndVersionOpen(t *testing.T) {
@@ -118,5 +139,71 @@ func TestOpenAPIJSONValid(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"openapi"`) || !strings.Contains(rec.Body.String(), "/api/v1/deploy") {
 		t.Errorf("openapi.json missing expected content")
+	}
+}
+
+// TestSecretRoutesWired: the CLI's get/set/create-tls have HTTP equivalents.
+// Offline these reach the handler and fail for want of a cluster (503) or on
+// validation (400) — what matters is that they are not 404/405 any more.
+func TestSecretRoutesWired(t *testing.T) {
+	h := testServer("")
+	for _, tc := range []struct {
+		name, method, path, body string
+	}{
+		{"get", "GET", "/api/v1/secrets/app-secret", ""},
+		{"get with values", "GET", "/api/v1/secrets/app-secret?showValues=true", ""},
+		{"set", "PATCH", "/api/v1/secrets/app-secret", `{"data":{"K":"v"}}`},
+		{"create-tls", "POST", "/api/v1/secrets/tls", `{"name":"c","cert":"x","key":"y"}`},
+	} {
+		var body io.Reader
+		if tc.body != "" {
+			body = strings.NewReader(tc.body)
+		}
+		req := httptest.NewRequest(tc.method, tc.path, body)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code == http.StatusNotFound || rec.Code == http.StatusMethodNotAllowed {
+			t.Errorf("%s %s (%s) = %d, route not registered", tc.method, tc.path, tc.name, rec.Code)
+		}
+	}
+}
+
+// TestSecretWritesValidateBeforeCluster: a bad body is rejected without needing
+// a cluster, so a typo reports itself instead of surfacing as a kubeconfig error.
+func TestSecretWritesValidateBeforeCluster(t *testing.T) {
+	h := testServer("")
+	for _, tc := range []struct {
+		name, method, path, body string
+	}{
+		{"set with no data", "PATCH", "/api/v1/secrets/app-secret", `{}`},
+		{"tls with no cert", "POST", "/api/v1/secrets/tls", `{"name":"c","key":"y"}`},
+		{"tls with no name", "POST", "/api/v1/secrets/tls", `{"cert":"x","key":"y"}`},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", tc.name, rec.Code)
+		}
+	}
+}
+
+// TestOpenAPICoversSecretSurface: the spec is the published contract, so a new
+// endpoint that is not in it is not really shipped.
+func TestOpenAPICoversSecretSurface(t *testing.T) {
+	h := testServer("")
+	req := httptest.NewRequest("GET", "/openapi.json", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	spec := rec.Body.String()
+	for _, want := range []string{
+		"/api/v1/secrets/{name}", "/api/v1/secrets/tls",
+		"SecretDetail", "TLSSecretRequest", "KeyNames", "showValues",
+	} {
+		if !strings.Contains(spec, want) {
+			t.Errorf("openapi.json missing %q", want)
+		}
 	}
 }
