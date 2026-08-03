@@ -13,4 +13,9 @@ Move env vars into a Secret: x-orcinus-secret: [DB_PASSWORD] on the service.
   (that CREATES a Secret from compose values — not for referencing an existing one)
 Mount an existing Secret as a file instead: compose `secrets:` with `external: true`;
   the map key must equal the Secret's name, and it needs a data key of that name too.
-List / delete:       orcinus secret ls ; orcinus secret rm <name>
+Inspect:             orcinus secret ls                  (names + key names)
+                     orcinus secret get app-secret      (keys; values need --show-values)
+Change one key:      orcinus secret set app-secret --from-literal DB_PASS=new
+                     `create` REPLACES and drops unnamed keys; `set` merges.
+                     Then: orcinus restart <service> — running pods keep old env values.
+Delete:              orcinus secret rm <name>
