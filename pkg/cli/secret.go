@@ -56,7 +56,9 @@ func newSecretCreateCmd() *cobra.Command {
 			if err := a.ApplySecret(cmd.Context(), namespace, args[0], corev1.SecretTypeOpaque, data); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "secret %q created (%d key(s))\n", args[0], len(data))
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"secret %q created (%d key(s)) — load it into a service with `x-orcinus-env-from-secret: %s`\n",
+				args[0], len(data), args[0])
 			return nil
 		},
 	}

@@ -1301,3 +1301,121 @@ services:
 		t.Fatalf("image = %q, want nginx:1.27", got)
 	}
 }
+
+// envFromSecretNames lists the Secrets a container loads with envFrom.
+func envFromSecretNames(c corev1.Container) []string {
+	var out []string
+	for _, ef := range c.EnvFrom {
+		if ef.SecretRef != nil {
+			out = append(out, ef.SecretRef.Name)
+		}
+	}
+	return out
+}
+
+// TestConvertEnvFromSecret: an existing Secret is loaded into the container env
+// without generating a Secret of our own.
+func TestConvertEnvFromSecret(t *testing.T) {
+	objs := convertString(t, `
+services:
+  app:
+    image: myapp:1.0
+    x-orcinus-env-from-secret: app-secret
+`)
+	c := firstDeployment(t, objs).Spec.Template.Spec.Containers[0]
+	if got := envFromSecretNames(c); len(got) != 1 || got[0] != "app-secret" {
+		t.Fatalf("envFrom secretRefs = %v, want [app-secret]", got)
+	}
+	for _, o := range objs {
+		if s, ok := o.(*corev1.Secret); ok {
+			t.Fatalf("generated Secret %q, want the existing one referenced instead", s.Name)
+		}
+	}
+}
+
+// TestConvertEnvFromSecretList: several Secrets, in the order written.
+func TestConvertEnvFromSecretList(t *testing.T) {
+	objs := convertString(t, `
+services:
+  app:
+    image: myapp:1.0
+    x-orcinus-env-from-secret: [app-secret, extra-secret]
+`)
+	c := firstDeployment(t, objs).Spec.Template.Spec.Containers[0]
+	got := envFromSecretNames(c)
+	if len(got) != 2 || got[0] != "app-secret" || got[1] != "extra-secret" {
+		t.Fatalf("envFrom secretRefs = %v, want [app-secret extra-secret]", got)
+	}
+}
+
+// TestConvertEnvFromSecretAfterEnvFile: the Secret is appended after the
+// env_file ConfigMap, so a key in both resolves to the Secret's value.
+func TestConvertEnvFromSecretAfterEnvFile(t *testing.T) {
+	objs, err := writeProject(t, `
+services:
+  app:
+    image: myapp:1.0
+    env_file: .env
+    x-orcinus-env-from-secret: app-secret
+`, map[string]string{".env": "APP_ENV=prod\n"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	c := firstDeployment(t, objs).Spec.Template.Spec.Containers[0]
+	if len(c.EnvFrom) != 2 {
+		t.Fatalf("envFrom = %+v, want the ConfigMap and the Secret", c.EnvFrom)
+	}
+	if c.EnvFrom[0].ConfigMapRef == nil || c.EnvFrom[0].ConfigMapRef.Name != "env" {
+		t.Fatalf("envFrom[0] = %+v, want the env_file ConfigMap first", c.EnvFrom[0])
+	}
+	if c.EnvFrom[1].SecretRef == nil || c.EnvFrom[1].SecretRef.Name != "app-secret" {
+		t.Fatalf("envFrom[1] = %+v, want the Secret last so it wins", c.EnvFrom[1])
+	}
+}
+
+// TestConvertEnvFromSecretOtherControllers: applied before Rollout conversion,
+// so every workload kind carries it.
+func TestConvertEnvFromSecretOtherControllers(t *testing.T) {
+	objs := convertString(t, `
+services:
+  sts:
+    image: myapp:1.0
+    x-orcinus-controller: statefulset
+    x-orcinus-env-from-secret: app-secret
+  canary:
+    image: myapp:1.0
+    x-orcinus-rollout: canary
+    x-orcinus-env-from-secret: app-secret
+`)
+	var sawSTS, sawRollout bool
+	for _, o := range objs {
+		switch v := o.(type) {
+		case *appsv1.StatefulSet:
+			if got := envFromSecretNames(v.Spec.Template.Spec.Containers[0]); len(got) == 1 && got[0] == "app-secret" {
+				sawSTS = true
+			}
+		case *unstructured.Unstructured:
+			if v.GetKind() != "Rollout" {
+				continue
+			}
+			cs, _, _ := unstructured.NestedSlice(v.Object, "spec", "template", "spec", "containers")
+			if len(cs) == 0 {
+				continue
+			}
+			c, _ := cs[0].(map[string]interface{})
+			envFrom, _, _ := unstructured.NestedSlice(c, "envFrom")
+			for _, ef := range envFrom {
+				m, _ := ef.(map[string]interface{})
+				if name, _, _ := unstructured.NestedString(m, "secretRef", "name"); name == "app-secret" {
+					sawRollout = true
+				}
+			}
+		}
+	}
+	if !sawSTS {
+		t.Error("StatefulSet did not get the envFrom secretRef")
+	}
+	if !sawRollout {
+		t.Error("Rollout did not inherit the envFrom secretRef")
+	}
+}

@@ -30,6 +30,7 @@ const (
 	extMiddleware  = "x-orcinus-middleware"   // Traefik middleware name(s) to attach to the ingress route (in order)
 
 	extImagePullSecret = "x-orcinus-image-pull-secret" // imagePullSecret name(s) for a private registry
+	extEnvFromSecret   = "x-orcinus-env-from-secret"   // existing Secret name(s) to load into the container's env
 	extNodeSelector    = "x-orcinus-node-selector"     // map of node labels to pin the pod (k8s nodeSelector)
 
 	extAutoscaleMin = "x-orcinus-autoscale-min"    // HPA min replicas
@@ -147,6 +148,9 @@ type preprocessed struct {
 	rollout map[string]string
 	// imagePullSecrets maps a service name to imagePullSecret names (private registry).
 	imagePullSecrets map[string][]string
+	// envFromSecrets maps a service name to existing Secret names whose keys are
+	// loaded into the container env (x-orcinus-env-from-secret).
+	envFromSecrets map[string][]string
 	// bindMounts maps a service name to host-path (bind) volumes → hostPath.
 	bindMounts map[string][]bindMount
 	// placement maps a service name to Swarm placement → nodeAffinity/topologySpread.
@@ -192,6 +196,7 @@ func injectKomposeLabels(composeBytes []byte, baseDir string, activeProfiles []s
 		strategy:         map[string]strategyCfg{},
 		rollout:          map[string]string{},
 		imagePullSecrets: map[string][]string{},
+		envFromSecrets:   map[string][]string{},
 		bindMounts:       map[string][]bindMount{},
 		placement:        map[string]placementCfg{},
 		nodeSelector:     map[string]map[string]string{},
@@ -333,6 +338,11 @@ func injectKomposeLabels(composeBytes []byte, baseDir string, activeProfiles []s
 		// Private-registry pull secrets → pod imagePullSecrets.
 		if secrets := stringSliceExt(svc[extImagePullSecret]); len(secrets) > 0 {
 			out.imagePullSecrets[name] = secrets
+		}
+
+		// Existing Secrets loaded wholesale into the container env.
+		if names := stringSliceExt(svc[extEnvFromSecret]); len(names) > 0 {
+			out.envFromSecrets[name] = names
 		}
 
 		// x-orcinus-node-selector → plain pod nodeSelector.

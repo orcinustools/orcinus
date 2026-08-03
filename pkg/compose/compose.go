@@ -82,6 +82,7 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	strategyCfgs := map[string]strategyCfg{}
 	rolloutCfgs := map[string]string{}
 	pullSecrets := map[string][]string{}
+	envFromSecrets := map[string][]string{}
 	bindMounts := map[string][]bindMount{}
 	placements := map[string]placementCfg{}
 	nodeSelectors := map[string]map[string]string{}
@@ -130,6 +131,9 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		}
 		for svc, names := range pp.imagePullSecrets {
 			pullSecrets[svc] = names
+		}
+		for svc, names := range pp.envFromSecrets {
+			envFromSecrets[svc] = names
 		}
 		for svc, mounts := range pp.bindMounts {
 			bindMounts[svc] = mounts
@@ -198,6 +202,10 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	// 6b. Attach private-registry imagePullSecrets to workloads (before Rollout
 	//     conversion so Rollouts inherit them from the Deployment template).
 	applyImagePullSecrets(objects, pullSecrets)
+
+	// 6b². Load existing Secrets into the container env (before Rollout
+	//      conversion so Rollouts inherit them).
+	applyEnvFromSecrets(objects, envFromSecrets)
 
 	// 6c. Attach host-path (bind-mount) volumes — node-local, like a Compose/Swarm
 	//     bind mount (before Rollout conversion so Rollouts inherit them).
@@ -872,6 +880,48 @@ func applyImagePullSecrets(objects []runtime.Object, cfgs map[string][]string) {
 		for _, n := range names {
 			if !have[n] {
 				ps.ImagePullSecrets = append(ps.ImagePullSecrets, corev1.LocalObjectReference{Name: n})
+			}
+		}
+	}
+}
+
+// applyEnvFromSecrets loads existing Secrets into a service's containers with
+// envFrom, so every key in the Secret becomes an env var under its own name.
+// The Secret is expected to already exist in the cluster (`orcinus secret
+// create`); nothing is generated for it here.
+func applyEnvFromSecrets(objects []runtime.Object, cfgs map[string][]string) {
+	if len(cfgs) == 0 {
+		return
+	}
+	for _, obj := range objects {
+		ps, svc := podSpecOf(obj)
+		if ps == nil {
+			continue
+		}
+		names, ok := cfgs[svc]
+		if !ok {
+			continue
+		}
+		for ci := range ps.Containers {
+			c := &ps.Containers[ci]
+			have := map[string]bool{}
+			for _, ef := range c.EnvFrom {
+				if ef.SecretRef != nil {
+					have[ef.SecretRef.Name] = true
+				}
+			}
+			for _, n := range names {
+				if have[n] {
+					continue
+				}
+				// Appended after any env_file ConfigMap, so a key present in
+				// both resolves to the Secret's value — the later envFrom entry
+				// wins, which is the point of naming a Secret here.
+				c.EnvFrom = append(c.EnvFrom, corev1.EnvFromSource{
+					SecretRef: &corev1.SecretEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: n},
+					},
+				})
 			}
 		}
 	}
