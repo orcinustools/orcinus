@@ -15,7 +15,8 @@ Legend: ✅ supported · ⚠️ partial / best-effort · ❌ not mapped
 |---|---|---|
 | `image` | container image | ✅ |
 | `command` / `entrypoint` | container command/args | ✅ |
-| `environment` / `env_file` | container `env` (move to a Secret with `x-orcinus-secret`) | ✅ |
+| `environment` | container `env` (move to a Secret with `x-orcinus-secret`) | ✅ |
+| `env_file` | `ConfigMap` + `envFrom` — see [Environment files](#environment-files) | ✅ |
 | `ports` | `Service` (ClusterIP; `x-orcinus-expose` for ingress/nodeport/lb/headless) | ✅ |
 | `volumes` (named) | `PersistentVolumeClaim` (size via `x-orcinus-volume-size`) | ✅ |
 | `volumes` (bind mount) | `hostPath` (node-local) — see [Volumes](./USAGE.md#7-volumes--storage) | ✅ |
@@ -65,6 +66,37 @@ orcinus deploy --profile debug       # also services in the "debug" profile
 ```
 
 Services without `profiles:` are always deployed.
+
+## Environment files
+
+Each `env_file:` becomes a ConfigMap the container pulls in with `envFrom`. The
+ConfigMap is named after the file, so `.env` → `env` and `config/db.env` →
+`config-db-env`.
+
+```yaml
+services:
+  app:
+    image: myapp:1.0
+    env_file:
+      - .env                 # → ConfigMap "env"
+      - ./config/db.env      # → ConfigMap "config-db-env"
+      - path: ./local.env    # long form
+        required: false      # skipped when the file is absent
+    x-orcinus-secret:
+      - DB_PASSWORD          # moved out of the ConfigMap into a Secret
+```
+
+Paths resolve against the compose file's directory, the same as `configs:` and
+`secrets:`. A missing file fails the deploy naming the service and the path,
+unless the long form marks it `required: false`.
+
+Keys listed in `x-orcinus-secret` are pulled out of the generated ConfigMap and
+into a `<service>-secret` Secret, with the container reading them through a
+`secretKeyRef`. Since the ConfigMap is shared by every service using that env
+file, marking a key secret removes it for all of them.
+
+A `.env` sitting next to the compose file is also used for `${VAR}`
+interpolation within the compose document itself, as in Docker Compose.
 
 ## Configs & secrets
 

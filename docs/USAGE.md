@@ -924,7 +924,8 @@ For a plain node pin without Swarm syntax, use the extension:
 | `ports` | `Service` (ClusterIP) | multiple ports supported; `x-orcinus-expose` changes type |
 | named `volumes` | `PersistentVolumeClaim` | size via `x-orcinus-volume-size` |
 | bind mount (`./x:/y`, `/abs:/y`) | `hostPath` volume | node-local, like a Compose/Swarm bind mount (relative paths resolve to absolute); host folder mounted into the container |
-| `environment` / `env_file` | container `env` | secrets via `x-orcinus-secret` |
+| `environment` | container `env` | secrets via `x-orcinus-secret` |
+| `env_file` | `ConfigMap` + `envFrom` | paths resolve against the compose file's dir |
 | `deploy.mode` | `Deployment` (replicated) / `DaemonSet` (global) | `global` → one pod per node (like Swarm); override with `x-orcinus-controller` |
 | `deploy.replicas` | `.spec.replicas` | |
 | `deploy.resources` | `resources.limits/requests` | cpu + memory |
@@ -1068,6 +1069,7 @@ This produces two Ingresses (`app.local`, `api.local`) with no duplication.
 
 | Path | Written by | Contents |
 |---|---|---|
+| `.env` (next to the compose file) | you | Read for `${VAR}` interpolation, and usable as an `env_file:` — see [Environment files](./COMPOSE.md#environment-files) |
 | `~/.orcinus/kubeconfig` | `init` | Kubeconfig for the local cluster |
 | `~/.orcinus/cluster.json` | `init` | Cluster state (name, server URL, token) used by `join`/`status`/`down` |
 
