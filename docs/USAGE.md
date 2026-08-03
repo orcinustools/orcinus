@@ -544,6 +544,8 @@ Manage Kubernetes Secrets — including bring-your-own TLS certs.
 
 ```
 orcinus secret create <name> --from-literal KEY=VALUE [...]
+orcinus secret set <name> --from-literal KEY=VALUE [...]
+orcinus secret get <name> [--show-values]
 orcinus secret create-tls <name> --cert <file> --key <file>
 orcinus secret create-registry <name> --server <host> -u <user> -p <pass>
 orcinus secret ls
@@ -552,10 +554,12 @@ orcinus secret rm <name>
 
 | Subcommand | Purpose |
 |---|---|
-| `create` | Opaque secret from `--from-literal KEY=VALUE` (repeatable) — load it into a service with `x-orcinus-env-from-secret` |
+| `create` | Opaque secret from `--from-literal KEY=VALUE` (repeatable) — load it into a service with `x-orcinus-env-from-secret`. **Replaces** an existing secret of the same name |
+| `set` | Change individual keys, keeping the ones not named; creates the secret if absent |
+| `get` | Show a secret's keys; values are hidden unless `--show-values` |
 | `create-tls` | TLS secret from a PEM cert + key — reference with `x-orcinus-tls-secret` |
 | `create-registry` | Private-registry pull secret — **tests the login first**, then reference with `x-orcinus-image-pull-secret` (`--insecure`, `--skip-login-check`; see [`REGISTRY.md`](./REGISTRY.md)) |
-| `ls` | List secrets (name, type, key count, whether orcinus-managed) |
+| `ls` | List secrets (name, type, key names, whether orcinus-managed) |
 | `rm` | Delete a secret |
 
 All take `-n`/`--namespace` (default `default`) and `--kubeconfig`. Created
@@ -566,6 +570,22 @@ orcinus secret create db-creds --from-literal PASSWORD=s3cr3t
 orcinus secret create-tls mysite-cert --cert fullchain.pem --key privkey.pem
 orcinus secret create-registry regcred --server ghcr.io -u me -p "$GHCR_PAT"
 ```
+
+**Changing one key.** `create` writes the whole secret, so it drops any key it
+is not given (it says so when it does). To change one value and keep the rest,
+use `set`:
+
+```bash
+orcinus secret get app-secret            # what is in there?
+orcinus secret set app-secret --from-literal DB_PASS=new
+orcinus restart app                      # see below
+```
+
+**A changed secret does not reach running pods.** Env vars are injected when the
+container starts, so a pod keeps the old values until it is replaced — run
+`orcinus restart <service>` after `set`. Secrets consumed as a mounted file
+(compose `secrets:` with `external: true`) are the exception: the kubelet
+refreshes those in place.
 
 ### 5.14 `orcinus plugin`
 
