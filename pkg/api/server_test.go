@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -206,4 +207,53 @@ func TestOpenAPICoversSecretSurface(t *testing.T) {
 			t.Errorf("openapi.json missing %q", want)
 		}
 	}
+}
+
+// TestConvertQueryParamsMatchJSONBody: the raw-body path takes its options from
+// query params, and every DeployRequest field has to be read there too —
+// pvcSize was silently dropped, so a PVC came out at the default size with no
+// error, and a PVC cannot be resized afterwards.
+func TestConvertQueryParamsMatchJSONBody(t *testing.T) {
+	h := testServer("")
+	const src = `services:
+  db:
+    image: postgres:16
+    volumes:
+      - data:/var/lib/postgresql/data
+volumes:
+  data:
+`
+	render := func(t *testing.T, method, path, body, contentType string) string {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", contentType)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s %s = %d: %s", method, path, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	// Raw YAML body + query params.
+	viaQuery := render(t, "POST", "/api/v1/convert?project=p&pvcSize=7Gi", src, "text/yaml")
+	if !strings.Contains(viaQuery, "7Gi") {
+		t.Errorf("pvcSize query param ignored; rendered PVC is not 7Gi:\n%s", viaQuery)
+	}
+
+	// The JSON body path, for comparison.
+	viaJSON := render(t, "POST", "/api/v1/convert",
+		`{"source":`+jsonString(src)+`,"project":"p","pvcSize":"7Gi"}`, "application/json")
+	if !strings.Contains(viaJSON, "7Gi") {
+		t.Errorf("pvcSize in the JSON body ignored:\n%s", viaJSON)
+	}
+}
+
+// jsonString quotes a string for embedding in a JSON literal.
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
 }

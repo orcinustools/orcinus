@@ -53,6 +53,7 @@ func (s *Server) parseDeployInput(r *http.Request) ([]byte, engine.Request, erro
 			Project:   q.Get("project"),
 			Namespace: q.Get("namespace"),
 			Mode:      q.Get("mode"),
+			PVCSize:   q.Get("pvcSize"),
 			ACMEEmail: q.Get("acmeEmail"),
 			Wait:      q.Get("wait") == "true",
 			PrunePVCs: q.Get("prunePVCs") == "true",

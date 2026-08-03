@@ -56,6 +56,17 @@ paths:
       tags: [deploy]
       summary: Render input to Kubernetes manifests (no apply)
       description: Accepts a JSON DeployRequest, or a raw compose/manifest body with options as query params.
+      parameters:
+        - { name: project, in: query, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+        - { name: mode, in: query, schema: { type: string, enum: [compose, manifest] } }
+        - { name: replicas, in: query, schema: { type: integer } }
+        - { name: pvcSize, in: query, schema: { type: string, example: 1Gi } }
+        - { name: prune, in: query, schema: { type: boolean, default: true } }
+        - { name: prunePVCs, in: query, schema: { type: boolean, default: false } }
+        - { name: wait, in: query, schema: { type: boolean, default: false } }
+        - { name: acmeEmail, in: query, schema: { type: string } }
+        - { name: profile, in: query, description: repeatable, schema: { type: string } }
       requestBody:
         required: true
         content:
@@ -82,6 +93,17 @@ paths:
         Detects compose vs manifest per document, converts, auto-installs any
         required plugins (cert-manager for x-orcinus-tls, argo-rollouts for
         x-orcinus-rollout), then server-side-applies with ownership labels.
+      parameters:
+        - { name: project, in: query, schema: { type: string } }
+        - { name: namespace, in: query, schema: { type: string } }
+        - { name: mode, in: query, schema: { type: string, enum: [compose, manifest] } }
+        - { name: replicas, in: query, schema: { type: integer } }
+        - { name: pvcSize, in: query, schema: { type: string, example: 1Gi } }
+        - { name: prune, in: query, schema: { type: boolean, default: true } }
+        - { name: prunePVCs, in: query, schema: { type: boolean, default: false } }
+        - { name: wait, in: query, schema: { type: boolean, default: false } }
+        - { name: acmeEmail, in: query, schema: { type: string } }
+        - { name: profile, in: query, description: repeatable, schema: { type: string } }
       requestBody:
         required: true
         content:
