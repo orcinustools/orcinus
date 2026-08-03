@@ -158,13 +158,28 @@ type preprocessed struct {
 	gpu map[string]map[string]string
 	// vm maps a service name to KubeVirt VirtualMachine hints (x-orcinus-vm).
 	vm map[string]vmCfg
+	// envFiles lists the `env_file:` targets to stage into the temp dir the
+	// fork reads from (see stageEnvFiles).
+	envFiles []envFileRef
+}
+
+// envFileRef is an `env_file:` entry that has to be copied next to the rewritten
+// compose document before the fork can read it.
+type envFileRef struct {
+	// src is the env file's absolute path as authored on disk.
+	src string
+	// dest is the path relative to the temp dir the file is copied to, and what
+	// the rewritten compose document points at.
+	dest string
 }
 
 // injectKomposeLabels reads x-orcinus-* keys from every service and rewrites the
 // compose document so the forked kompose engine sees equivalent native labels.
 // baseDir is the compose file's directory (to resolve relative bind-mount /
 // config / secret file paths); activeProfiles filters services by compose profile.
-func injectKomposeLabels(composeBytes []byte, baseDir string, activeProfiles []string) (*preprocessed, error) {
+// envDests tracks the temp-dir paths env files have already been staged under,
+// so names stay unique across every compose file in one conversion.
+func injectKomposeLabels(composeBytes []byte, baseDir string, activeProfiles []string, envDests map[string]string) (*preprocessed, error) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(composeBytes, &doc); err != nil {
 		return nil, fmt.Errorf("parse compose document: %w", err)
@@ -208,6 +223,13 @@ func injectKomposeLabels(composeBytes []byte, baseDir string, activeProfiles []s
 			continue
 		}
 		delete(svc, "profiles")
+
+		refs, err := stageEnvFiles(svc, name, baseDir, envDests)
+		if err != nil {
+			return nil, err
+		}
+		out.envFiles = append(out.envFiles, refs...)
+
 		labels := normalizeLabels(svc["labels"])
 
 		if v, ok := stringExt(svc[extController]); ok {
@@ -406,6 +428,121 @@ func resolveFileRefs(v interface{}, baseDir string) {
 		if f, ok := entry["file"].(string); ok && f != "" && !filepath.IsAbs(f) {
 			entry["file"] = absPath(f, baseDir)
 		}
+	}
+}
+
+// stageEnvFiles rewrites a service's `env_file:` entries to paths relative to
+// the temp dir the fork loads from, and reports what has to be copied there.
+//
+// Unlike configs:/secrets:, an absolute path is not a fix here: the fork
+// resolves env_file twice — once in its loader (against the compose file's
+// directory, i.e. the temp dir) and again in its transformer, which does a
+// plain filepath.Join(workDir, path) that concatenates rather than replaces.
+// Staging a copy under a relative path is what satisfies both.
+//
+// Relative paths that stay inside the temp dir are kept verbatim, because the
+// fork derives the generated ConfigMap's name from the path, so rewriting
+// `.env` to something synthetic would rename the ConfigMap too.
+func stageEnvFiles(svc map[string]interface{}, svcName, baseDir string, envDests map[string]string) ([]envFileRef, error) {
+	var entries []interface{}
+	switch v := svc["env_file"].(type) {
+	case nil:
+		return nil, nil
+	case string:
+		entries = []interface{}{v}
+	case []interface{}:
+		entries = v
+	default:
+		return nil, nil
+	}
+
+	var refs []envFileRef
+	rewritten := make([]interface{}, 0, len(entries))
+	for _, e := range entries {
+		path, required, ok := envFileEntry(e)
+		if !ok {
+			rewritten = append(rewritten, e)
+			continue
+		}
+		src := path
+		if !filepath.IsAbs(src) {
+			src = absPath(path, baseDir)
+		}
+		if _, err := os.Stat(src); err != nil {
+			if !required {
+				// Compose skips an optional missing file. The fork ignores the
+				// flag and would fail reading it later, so drop it outright.
+				continue
+			}
+			return nil, fmt.Errorf("service %q: env_file %q not found: %s", svcName, path, src)
+		}
+		dest := envFileDest(path, src, envDests)
+		refs = append(refs, envFileRef{src: src, dest: dest})
+		rewritten = append(rewritten, rewriteEnvFileEntry(e, dest))
+	}
+
+	if len(rewritten) == 0 {
+		delete(svc, "env_file")
+		return refs, nil
+	}
+	svc["env_file"] = rewritten
+	return refs, nil
+}
+
+// envFileEntry pulls the path and required flag out of one `env_file:` entry,
+// which is either a plain string or the long form {path, required}.
+func envFileEntry(e interface{}) (path string, required bool, ok bool) {
+	switch v := e.(type) {
+	case string:
+		return v, true, v != ""
+	case map[string]interface{}:
+		p, _ := v["path"].(string)
+		required := true
+		if r, isBool := v["required"].(bool); isBool {
+			required = r
+		}
+		return p, required, p != ""
+	}
+	return "", false, false
+}
+
+// rewriteEnvFileEntry points an entry at its staged path, keeping the long
+// form's other keys (required, format) intact.
+func rewriteEnvFileEntry(e interface{}, dest string) interface{} {
+	m, ok := e.(map[string]interface{})
+	if !ok {
+		return dest
+	}
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	out["path"] = dest
+	return out
+}
+
+// envFileDest picks the temp-dir-relative path an env file is staged under.
+// A relative path that stays inside the dir is kept as authored so the
+// generated ConfigMap keeps the name it would otherwise have; anything else
+// (absolute, or climbing out with "..") falls back to the base name, numbered
+// if that is already taken by a different file.
+func envFileDest(path, src string, envDests map[string]string) string {
+	var dest string
+	if !filepath.IsAbs(path) {
+		clean := filepath.ToSlash(filepath.Clean(path))
+		if clean != ".." && !strings.HasPrefix(clean, "../") {
+			dest = clean
+		}
+	}
+	if dest == "" {
+		dest = filepath.Base(src)
+	}
+	for i := 1; ; i++ {
+		if prev, clash := envDests[dest]; !clash || prev == src {
+			envDests[dest] = src
+			return dest
+		}
+		dest = fmt.Sprintf("%d-%s", i, filepath.Base(src))
 	}
 }
 

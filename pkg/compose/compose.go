@@ -87,6 +87,8 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	nodeSelectors := map[string]map[string]string{}
 	gpus := map[string]map[string]string{}
 	vmCfgs := map[string]vmCfg{}
+	// envDests keeps staged env-file names unique across every compose file.
+	envDests := map[string]string{}
 	var loaderFiles []string
 	for i, f := range opts.Files {
 		raw, err := os.ReadFile(f)
@@ -97,8 +99,18 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		if baseDir == "" {
 			baseDir = filepath.Dir(f)
 		}
-		pp, err := injectKomposeLabels(raw, baseDir, opts.Profiles)
+		pp, err := injectKomposeLabels(raw, baseDir, opts.Profiles, envDests)
 		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		// env_file targets have to physically sit in the temp dir: the fork
+		// resolves them against it both when loading and when transforming.
+		if err := copyEnvFiles(tmpDir, pp.envFiles); err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		// compose-go reads `.env` from that same dir for ${VAR} interpolation,
+		// so the project's own .env has to travel with the documents.
+		if err := stageDotEnv(tmpDir, baseDir, envDests); err != nil {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
 		for svc, names := range pp.secrets {
@@ -150,17 +162,18 @@ func Convert(opts Options) ([]runtime.Object, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load compose: %w", err)
 	}
+	relativizeEnvFiles(komposeObject, tmpDir)
 
 	// 3. Transform via the forked kubernetes transformer.
 	convertOpts := kobject.ConvertOptions{
-		Provider:      "kubernetes",
-		CreateD:       true,
-		Replicas:      opts.Replicas,
-		Volumes:       "persistentVolumeClaim",
+		Provider:       "kubernetes",
+		CreateD:        true,
+		Replicas:       opts.Replicas,
+		Volumes:        "persistentVolumeClaim",
 		PVCRequestSize: opts.PVCSize,
-		Namespace:     opts.Namespace,
-		YAMLIndent:    2,
-		InputFiles:    loaderFiles,
+		Namespace:      opts.Namespace,
+		YAMLIndent:     2,
+		InputFiles:     loaderFiles,
 	}
 	k := &kubernetes.Kubernetes{Opt: convertOpts}
 	objects, err := k.Transform(komposeObject, convertOpts)
@@ -595,6 +608,68 @@ func allIngressHosts(ing *networkingv1.Ingress) []string {
 	return hosts
 }
 
+// relativizeEnvFiles turns the absolute env_file paths compose-go produces back
+// into paths relative to the loader's working dir. The fork's transformer joins
+// them onto that dir again, so leaving them absolute yields a concatenated path
+// that does not exist. The kompose CLI does this in its own driver, which
+// orcinus bypasses by calling the loader and transformer directly.
+func relativizeEnvFiles(obj kobject.KomposeObject, workDir string) {
+	for _, svc := range obj.ServiceConfigs {
+		for i, envFile := range svc.EnvFile {
+			if !filepath.IsAbs(envFile) {
+				continue
+			}
+			rel, err := filepath.Rel(workDir, envFile)
+			if err != nil {
+				continue
+			}
+			// svc is a copy, but EnvFile shares its backing array.
+			svc.EnvFile[i] = filepath.ToSlash(rel)
+		}
+	}
+}
+
+// copyEnvFiles copies each `env_file:` target into the temp dir under the path
+// the rewritten compose document now names.
+func copyEnvFiles(tmpDir string, refs []envFileRef) error {
+	for _, ref := range refs {
+		dst := filepath.Join(tmpDir, filepath.FromSlash(ref.dest))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(ref.src)
+		if err != nil {
+			return fmt.Errorf("read env_file %q: %w", ref.src, err)
+		}
+		if err := os.WriteFile(dst, data, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// stageDotEnv copies the project's `.env` into the temp dir so compose-go finds
+// it for ${VAR} interpolation, which it looks up in the loader's working dir.
+// A `.env` already staged from an env_file entry wins and is left alone.
+func stageDotEnv(tmpDir, baseDir string, envDests map[string]string) error {
+	if baseDir == "" {
+		return nil
+	}
+	src := filepath.Join(baseDir, ".env")
+	if _, err := os.Stat(src); err != nil {
+		return nil
+	}
+	if prev, staged := envDests[".env"]; staged && prev != src {
+		return nil
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("read %q: %w", src, err)
+	}
+	envDests[".env"] = src
+	return os.WriteFile(filepath.Join(tmpDir, ".env"), data, 0o600)
+}
+
 // decorate stamps ownership labels and namespace on every object.
 func decorate(objects []runtime.Object, project, namespace string) {
 	for _, obj := range objects {
@@ -688,6 +763,43 @@ func applySecrets(objects []runtime.Object, secrets map[string][]string, opts Op
 					}
 				}
 				c.Env = kept
+
+				// Vars that came from `env_file:` are not in container env at
+				// all — the fork puts them in a ConfigMap the container pulls in
+				// with envFrom. Move the requested keys out of there, or the
+				// value the user asked to keep secret stays in a ConfigMap.
+				for _, ef := range c.EnvFrom {
+					if ef.ConfigMapRef == nil {
+						continue
+					}
+					cm := configMapByName(objects, ef.ConfigMapRef.Name)
+					if cm == nil {
+						continue
+					}
+					for _, n := range sortedKeys(want) {
+						v, present := cm.Data[n]
+						if !present {
+							continue
+						}
+						// The ConfigMap is shared by every service using that
+						// env file, so this pulls the key for all of them —
+						// which is what marking it secret should mean.
+						delete(cm.Data, n)
+						data[n] = []byte(v)
+						if hasEnvVar(c.Env, n) {
+							continue
+						}
+						c.Env = append(c.Env, corev1.EnvVar{
+							Name: n,
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+									Key:                  n,
+								},
+							},
+						})
+					}
+				}
 			}
 		}
 
@@ -704,6 +816,37 @@ func applySecrets(objects []runtime.Object, secrets map[string][]string, opts Op
 	}
 	decorate(created, opts.ProjectName, opts.Namespace)
 	return created, nil
+}
+
+// configMapByName finds a generated ConfigMap so its keys can be rewritten.
+func configMapByName(objects []runtime.Object, name string) *corev1.ConfigMap {
+	for _, obj := range objects {
+		if cm, ok := obj.(*corev1.ConfigMap); ok && cm.Name == name {
+			return cm
+		}
+	}
+	return nil
+}
+
+// hasEnvVar reports whether a container already declares an env var by name.
+func hasEnvVar(envs []corev1.EnvVar, name string) bool {
+	for _, e := range envs {
+		if e.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// sortedKeys returns a set's keys in a stable order, so generated manifests do
+// not shuffle between runs.
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // podSpecOf returns the pod spec and workload name for supported controllers.

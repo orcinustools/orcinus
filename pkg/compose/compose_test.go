@@ -1075,3 +1075,229 @@ services:
 	}
 	t.Fatal("no StripPrefix Middleware generated")
 }
+
+// configMapNamed finds a generated ConfigMap by name.
+func configMapNamed(t *testing.T, objs []runtime.Object, name string) *corev1.ConfigMap {
+	t.Helper()
+	for _, o := range objs {
+		if cm, ok := o.(*corev1.ConfigMap); ok && cm.Name == name {
+			return cm
+		}
+	}
+	t.Fatalf("no ConfigMap %q in %d objects", name, len(objs))
+	return nil
+}
+
+// envFromNames lists the ConfigMaps a deployment's first container pulls in.
+func envFromNames(d *appsv1.Deployment) []string {
+	var out []string
+	for _, ef := range d.Spec.Template.Spec.Containers[0].EnvFrom {
+		if ef.ConfigMapRef != nil {
+			out = append(out, ef.ConfigMapRef.Name)
+		}
+	}
+	return out
+}
+
+// writeProject lays out a compose file plus companion files and converts it.
+// files maps a path relative to the project dir to its content; a path may
+// start with "../" to land beside the project dir.
+func writeProject(t *testing.T, compose string, files map[string]string) ([]runtime.Object, error) {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "proj")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for rel, content := range files {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fp := filepath.Join(dir, "docker-compose.yml")
+	if err := os.WriteFile(fp, []byte(compose), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Convert(Options{Files: []string{fp}, ProjectName: "proj", Namespace: "demo"})
+}
+
+// TestConvertEnvFile: env_file → ConfigMap the container pulls in with envFrom.
+func TestConvertEnvFile(t *testing.T) {
+	objs, err := writeProject(t, `
+services:
+  web:
+    image: nginx:1.27
+    env_file: .env
+`, map[string]string{".env": "FOO=bar\nDB_HOST=postgres\n"})
+	if err != nil {
+		t.Fatalf("Convert with env_file: %v", err)
+	}
+	cm := configMapNamed(t, objs, "env")
+	if cm.Data["FOO"] != "bar" || cm.Data["DB_HOST"] != "postgres" {
+		t.Fatalf("ConfigMap data = %v, want FOO=bar DB_HOST=postgres", cm.Data)
+	}
+	if got := envFromNames(firstDeployment(t, objs)); len(got) != 1 || got[0] != "env" {
+		t.Fatalf("envFrom = %v, want [env]", got)
+	}
+}
+
+// TestConvertEnvFileForms: every path shape compose accepts resolves against
+// the compose file's own directory, not the temp dir the fork reads from.
+func TestConvertEnvFileForms(t *testing.T) {
+	objs, err := writeProject(t, `
+services:
+  web:
+    image: nginx:1.27
+    env_file:
+      - a.env
+      - ./config/b.env
+      - ../shared.env
+`, map[string]string{
+		"a.env":         "A=1\n",
+		"config/b.env":  "B=2\n",
+		"../shared.env": "S=3\n",
+	})
+	if err != nil {
+		t.Fatalf("Convert with env_file list: %v", err)
+	}
+	for name, key := range map[string]string{"a-env": "A", "config-b-env": "B", "shared-env": "S"} {
+		if cm := configMapNamed(t, objs, name); cm.Data[key] == "" {
+			t.Fatalf("ConfigMap %q missing key %q: %v", name, key, cm.Data)
+		}
+	}
+	if got := envFromNames(firstDeployment(t, objs)); len(got) != 3 {
+		t.Fatalf("envFrom = %v, want 3 ConfigMaps", got)
+	}
+}
+
+// TestConvertEnvFileAbsolute: an absolute path is staged like any other. The
+// fork joins env_file onto its working dir, so absolute paths would otherwise
+// be concatenated onto the temp dir.
+func TestConvertEnvFileAbsolute(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "abs.env")
+	if err := os.WriteFile(envPath, []byte("K=v\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	objs, err := writeProject(t, `
+services:
+  web:
+    image: nginx:1.27
+    env_file: `+envPath+`
+`, nil)
+	if err != nil {
+		t.Fatalf("Convert with absolute env_file: %v", err)
+	}
+	if cm := configMapNamed(t, objs, "abs-env"); cm.Data["K"] != "v" {
+		t.Fatalf("ConfigMap data = %v, want K=v", cm.Data)
+	}
+}
+
+// TestConvertEnvFileLongForm: {path, required} entries work, and an optional
+// missing file is skipped rather than failing the conversion.
+func TestConvertEnvFileLongForm(t *testing.T) {
+	objs, err := writeProject(t, `
+services:
+  web:
+    image: nginx:1.27
+    env_file:
+      - path: ./a.env
+        required: true
+      - path: ./gone.env
+        required: false
+`, map[string]string{"a.env": "A=1\n"})
+	if err != nil {
+		t.Fatalf("Convert with long-form env_file: %v", err)
+	}
+	if cm := configMapNamed(t, objs, "a-env"); cm.Data["A"] != "1" {
+		t.Fatalf("ConfigMap data = %v, want A=1", cm.Data)
+	}
+	if got := envFromNames(firstDeployment(t, objs)); len(got) != 1 {
+		t.Fatalf("envFrom = %v, want only the required file", got)
+	}
+}
+
+// TestConvertEnvFileMissing: a required env_file that is absent is reported
+// against the path the user wrote, not the temp copy.
+func TestConvertEnvFileMissing(t *testing.T) {
+	_, err := writeProject(t, `
+services:
+  web:
+    image: nginx:1.27
+    env_file: ./nope.env
+`, nil)
+	if err == nil {
+		t.Fatal("Convert succeeded with a missing required env_file")
+	}
+	if !strings.Contains(err.Error(), "nope.env") || !strings.Contains(err.Error(), `service "web"`) {
+		t.Fatalf("error = %v, want it to name the service and ./nope.env", err)
+	}
+}
+
+// TestConvertEnvFileSecret: x-orcinus-secret moves a key out of the env_file
+// ConfigMap into a Secret, instead of leaving the value in plain config.
+func TestConvertEnvFileSecret(t *testing.T) {
+	objs, err := writeProject(t, `
+services:
+  web:
+    image: nginx:1.27
+    env_file: .env
+    x-orcinus-secret:
+      - DB_PASS
+`, map[string]string{".env": "DB_PASS=s3cret\nAPP_ENV=prod\n"})
+	if err != nil {
+		t.Fatalf("Convert with env_file + x-orcinus-secret: %v", err)
+	}
+	cm := configMapNamed(t, objs, "env")
+	if _, leaked := cm.Data["DB_PASS"]; leaked {
+		t.Fatalf("DB_PASS left in ConfigMap: %v", cm.Data)
+	}
+	if cm.Data["APP_ENV"] != "prod" {
+		t.Fatalf("APP_ENV = %q, want it left in the ConfigMap", cm.Data["APP_ENV"])
+	}
+
+	var secret *corev1.Secret
+	for _, o := range objs {
+		if s, ok := o.(*corev1.Secret); ok && s.Name == "web-secret" {
+			secret = s
+		}
+	}
+	if secret == nil {
+		t.Fatal("no Secret web-secret generated")
+	}
+	if string(secret.Data["DB_PASS"]) != "s3cret" {
+		t.Fatalf("Secret DB_PASS = %q, want s3cret", secret.Data["DB_PASS"])
+	}
+
+	c := firstDeployment(t, objs).Spec.Template.Spec.Containers[0]
+	for _, e := range c.Env {
+		if e.Name != "DB_PASS" {
+			continue
+		}
+		if e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil {
+			t.Fatalf("DB_PASS env = %+v, want a secretKeyRef", e)
+		}
+		return
+	}
+	t.Fatal("container has no DB_PASS env var sourced from the Secret")
+}
+
+// TestConvertDotEnvInterpolation: ${VAR} resolves from the project's .env,
+// which compose-go reads from the loader's working directory.
+func TestConvertDotEnvInterpolation(t *testing.T) {
+	objs, err := writeProject(t, `
+services:
+  web:
+    image: nginx:${TAG}
+`, map[string]string{".env": "TAG=1.27\n"})
+	if err != nil {
+		t.Fatalf("Convert with .env interpolation: %v", err)
+	}
+	if got := firstDeployment(t, objs).Spec.Template.Spec.Containers[0].Image; got != "nginx:1.27" {
+		t.Fatalf("image = %q, want nginx:1.27", got)
+	}
+}
