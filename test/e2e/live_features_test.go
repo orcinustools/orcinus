@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -342,14 +343,104 @@ func TestLiveSecret(t *testing.T) {
 	if got, _ := kubectl("get", "secret", "app-config", "-o", "jsonpath={.data.FOO}"); got == "" {
 		t.Errorf("secret app-config missing key FOO")
 	}
-	if out, _ := orcinus("secret", "ls"); !strings.Contains(out, "app-config") {
+	// ls names the keys, not just how many there are.
+	out, _ := orcinus("secret", "ls")
+	if !strings.Contains(out, "app-config") {
 		t.Errorf("secret ls missing app-config:\n%s", out)
 	}
+	if !strings.Contains(out, "BAZ") || !strings.Contains(out, "FOO") {
+		t.Errorf("secret ls should list the key names:\n%s", out)
+	}
+
+	// get withholds values unless asked, so it is safe in a shared terminal.
+	out, err := orcinus("secret", "get", "app-config")
+	if err != nil {
+		t.Fatalf("secret get: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "FOO") || !strings.Contains(out, "BAZ") {
+		t.Errorf("secret get should list both keys:\n%s", out)
+	}
+	if strings.Contains(out, "bar") || strings.Contains(out, "qux") {
+		t.Errorf("secret get leaked values without --show-values:\n%s", out)
+	}
+	if out, err := orcinus("secret", "get", "app-config", "--show-values"); err != nil {
+		t.Fatalf("secret get --show-values: %v\n%s", err, out)
+	} else if !strings.Contains(out, "bar") || !strings.Contains(out, "qux") {
+		t.Errorf("secret get --show-values should print the values:\n%s", out)
+	}
+
+	// set changes one key and leaves the rest alone — the whole reason it
+	// exists, since create would drop BAZ here.
+	if out, err := orcinus("secret", "set", "app-config", "--from-literal", "FOO=updated"); err != nil {
+		t.Fatalf("secret set: %v\n%s", err, out)
+	}
+	if got, _ := kubectl("get", "secret", "app-config", "-o", "jsonpath={.data.FOO}"); got != b64("updated") {
+		t.Errorf("FOO = %q, want base64 of \"updated\"", got)
+	}
+	if got, _ := kubectl("get", "secret", "app-config", "-o", "jsonpath={.data.BAZ}"); got != b64("qux") {
+		t.Errorf("BAZ = %q, want it untouched by set", got)
+	}
+
+	// set on a name that does not exist yet is a create.
+	if out, err := orcinus("secret", "set", "fresh-secret", "--from-literal", "K=v"); err != nil {
+		t.Fatalf("secret set on a missing secret: %v\n%s", err, out)
+	}
+	if got, _ := kubectl("get", "secret", "fresh-secret", "-o", "jsonpath={.data.K}"); got != b64("v") {
+		t.Errorf("fresh-secret K = %q, want base64 of \"v\"", got)
+	}
+
+	// create replaces, and says which keys that cost.
+	out, err = orcinus("secret", "create", "app-config", "--from-literal", "FOO=again")
+	if err != nil {
+		t.Fatalf("secret create over an existing secret: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "dropped") || !strings.Contains(out, "BAZ") {
+		t.Errorf("create should warn that it dropped BAZ:\n%s", out)
+	}
+	if _, err := kubectl("get", "secret", "app-config", "-o", "jsonpath={.data.BAZ}"); err == nil {
+		if got, _ := kubectl("get", "secret", "app-config", "-o", "jsonpath={.data.BAZ}"); got != "" {
+			t.Errorf("BAZ = %q, want it dropped by create", got)
+		}
+	}
+
 	if out, err := orcinus("secret", "rm", "app-config"); err != nil {
 		t.Fatalf("secret rm: %v\n%s", err, out)
 	}
 	if _, err := kubectl("get", "secret", "app-config"); err == nil {
 		t.Errorf("secret app-config should be gone")
+	}
+}
+
+// b64 is how Kubernetes reports Secret values through jsonpath.
+func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+
+// TestLiveSecretEnvFromSecret: x-orcinus-env-from-secret wires an existing
+// Secret into a running pod's environment, and `secret set` + `restart` is what
+// gets a changed value in there.
+func TestLiveSecretEnvFromSecret(t *testing.T) {
+	requireLive(t)
+	orcinus, kubectl := liveCluster(t, "orcinus-envsec", 16487)
+
+	if out, err := orcinus("secret", "create", "app-secret", "--from-literal", "DB_PASS=first"); err != nil {
+		t.Fatalf("secret create: %v\n%s", err, out)
+	}
+	compose := writeCompose(t, `
+services:
+  app:
+    image: busybox:1.36
+    command: ["sh", "-c", "env; sleep 3600"]
+    x-orcinus-env-from-secret: app-secret
+`)
+	if out, err := orcinus("deploy", "-f", compose, "--project", "envsec", "--wait"); err != nil {
+		t.Fatalf("deploy: %v\n%s", err, out)
+	}
+	ref, _ := kubectl("get", "deployment", "app", "-o",
+		"jsonpath={.spec.template.spec.containers[0].envFrom[0].secretRef.name}")
+	if ref != "app-secret" {
+		t.Fatalf("envFrom secretRef = %q, want app-secret", ref)
+	}
+	if out, _ := kubectl("logs", "-l", "io.kompose.service=app", "--tail", "-1"); !strings.Contains(out, "DB_PASS=first") {
+		t.Errorf("pod env missing the Secret's value:\n%s", out)
 	}
 }
 
