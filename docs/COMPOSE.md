@@ -21,7 +21,7 @@ Legend: ✅ supported · ⚠️ partial / best-effort · ❌ not mapped
 | `volumes` (named) | `PersistentVolumeClaim` (size via `x-orcinus-volume-size`) | ✅ |
 | `volumes` (bind mount) | `hostPath` (node-local) — see [Volumes](./USAGE.md#7-volumes--storage) | ✅ |
 | `configs` | `ConfigMap` mounted at the target (relative `file:` supported) | ✅ |
-| `secrets` | `Secret` mounted at the target (relative `file:` supported) | ✅ |
+| `secrets` | `Secret` mounted at the target (relative `file:`, or `external: true` for an existing one) | ✅ |
 | `healthcheck` | `livenessProbe` (readiness via `kompose.service.healthcheck.readiness.*` labels) | ✅ |
 | `restart` | pod `restartPolicy` | ✅ |
 | `user` | `securityContext.runAsUser`/`runAsGroup` | ✅ |
@@ -97,6 +97,52 @@ file, marking a key secret removes it for all of them.
 
 A `.env` sitting next to the compose file is also used for `${VAR}`
 interpolation within the compose document itself, as in Docker Compose.
+
+## Using a Secret that already exists
+
+For credentials you do not want in the compose file, create the Secret once and
+reference it. `orcinus secret ls` shows what the cluster already has.
+
+```bash
+orcinus secret create app-secret --from-literal DB_PASS=xxx --from-literal API_KEY=yyy
+```
+
+**As environment variables** — every key in the Secret becomes an env var under
+its own name:
+
+```yaml
+services:
+  app:
+    image: myapp:1.0
+    x-orcinus-env-from-secret: app-secret   # or a list: [app-secret, extra-secret]
+```
+
+This is appended after any `env_file:` ConfigMap, so a key in both takes the
+Secret's value. Nothing is generated for the Secret — it has to exist at deploy
+time, or the pod stays pending on a missing reference.
+
+**As a mounted file** — use compose's own `secrets:` with `external: true`:
+
+```yaml
+services:
+  app:
+    image: myapp:1.0
+    secrets:
+      - source: app-secret
+        target: /etc/app/secret.env   # absolute target → predictable path
+secrets:
+  app-secret:
+    external: true                    # use the cluster's, do not create one
+```
+
+Two constraints here that `x-orcinus-env-from-secret` does not have: the key in
+the `secrets:` map must match the Secret's name in the cluster (a `name:` field
+is ignored), and the Secret must contain a data key of that same name —
+`target:` renames the file, not the key. So this route suits a Secret holding a
+single value; for one holding several keys, prefer the env form above.
+
+Deploying with a `--dry-run` prints the generated `envFrom`/volume, which is the
+quickest way to confirm the wiring before it reaches the cluster.
 
 ## Configs & secrets
 

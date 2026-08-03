@@ -552,7 +552,7 @@ orcinus secret rm <name>
 
 | Subcommand | Purpose |
 |---|---|
-| `create` | Opaque secret from `--from-literal KEY=VALUE` (repeatable) |
+| `create` | Opaque secret from `--from-literal KEY=VALUE` (repeatable) — load it into a service with `x-orcinus-env-from-secret` |
 | `create-tls` | TLS secret from a PEM cert + key — reference with `x-orcinus-tls-secret` |
 | `create-registry` | Private-registry pull secret — **tests the login first**, then reference with `x-orcinus-image-pull-secret` (`--insecure`, `--skip-login-check`; see [`REGISTRY.md`](./REGISTRY.md)) |
 | `ls` | List secrets (name, type, key count, whether orcinus-managed) |
@@ -969,6 +969,7 @@ keys; orcinus parses them during conversion.
 | `x-orcinus-strip-prefix` | `true` \| prefix \| list | Traefik **StripPrefix**: strip the path prefix so the backend sees `/` (see [INGRESS.md](./INGRESS.md)) |
 | `x-orcinus-middleware` | middleware name or list | Attach Traefik **middleware(s)** to the route, in order (rate limit, headers, auth, redirect, …) |
 | `x-orcinus-image-pull-secret` | secret name or list | Attach **imagePullSecret(s)** for a private registry (see [`REGISTRY.md`](./REGISTRY.md)) |
+| `x-orcinus-env-from-secret` | secret name or list | Load an **existing** Secret's keys into the container env (`envFrom`); create it with `orcinus secret create` |
 | `x-orcinus-node-selector` | map of `label: value` | Pin the pod to nodes with these labels (k8s `nodeSelector`); see [§8](#8-placement--node-constraints) |
 | `x-orcinus-autoscale-min` | int | HPA min replicas (default 1) |
 | `x-orcinus-autoscale-max` | int | HPA max replicas (**enables** the HPA) |
