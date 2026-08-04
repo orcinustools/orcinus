@@ -14,6 +14,7 @@ import (
 	"github.com/orcinustools/orcinus/pkg/plugin"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // DeployRequest is the JSON body for POST /api/v1/deploy and /convert. When the
@@ -52,6 +53,7 @@ func (s *Server) parseDeployInput(r *http.Request) ([]byte, engine.Request, erro
 			Project:   q.Get("project"),
 			Namespace: q.Get("namespace"),
 			Mode:      q.Get("mode"),
+			PVCSize:   q.Get("pvcSize"),
 			ACMEEmail: q.Get("acmeEmail"),
 			Wait:      q.Get("wait") == "true",
 			PrunePVCs: q.Get("prunePVCs") == "true",
@@ -321,6 +323,130 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]interface{}{"name": body.Name, "namespace": ns, "keys": len(data)})
+}
+
+// handleGetSecret reports a Secret's keys. Values are withheld unless
+// ?showValues=true, matching `orcinus secret get`: a listing is safe to fetch,
+// printing credentials should be asked for.
+func (s *Server) handleGetSecret(w http.ResponseWriter, r *http.Request) {
+	a, err := s.applier()
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	sec, err := a.GetSecret(r.Context(), namespaceOrDefault(r), r.PathValue("name"))
+	if err != nil {
+		writeErr(w, secretStatus(err), err.Error())
+		return
+	}
+	out := map[string]interface{}{
+		"name":      sec.Name,
+		"namespace": sec.Namespace,
+		"type":      sec.Type,
+		"managedBy": sec.ManagedBy,
+		"keys":      sec.KeyNames(),
+	}
+	if r.URL.Query().Get("showValues") == "true" {
+		values := map[string]string{}
+		for k, v := range sec.Data {
+			values[k] = string(v)
+		}
+		out["values"] = values
+	} else {
+		out["redacted"] = true
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handlePatchSecret merges keys into an existing Secret, the counterpart to
+// POST /api/v1/secrets, which replaces the data wholesale. Mirrors
+// `orcinus secret set`.
+func (s *Server) handlePatchSecret(w http.ResponseWriter, r *http.Request) {
+	var body SecretRequest
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(body.Data) == 0 {
+		writeErr(w, http.StatusBadRequest, "non-empty data is required")
+		return
+	}
+	a, err := s.applier()
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	name := r.PathValue("name")
+	ns := namespaceOrDefault(r)
+	if body.Namespace != "" {
+		ns = body.Namespace
+	}
+	data := map[string][]byte{}
+	for k, v := range body.Data {
+		data[k] = []byte(v)
+	}
+	if err := a.MergeSecret(r.Context(), ns, name, corev1.SecretTypeOpaque, data); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	after, err := a.GetSecret(r.Context(), ns, name)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Callers have to restart the workload themselves: env vars are injected
+	// when the container starts, so a running pod keeps the old values.
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"name": name, "namespace": ns,
+		"set": len(data), "keys": len(after.Data),
+		"note": "running pods keep the old values until restarted",
+	})
+}
+
+// TLSSecretRequest is the body for creating a TLS Secret. The CLI reads PEM
+// files; over HTTP the contents come inline.
+type TLSSecretRequest struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Cert      string `json:"cert"` // PEM certificate chain
+	Key       string `json:"key"`  // PEM private key
+}
+
+// handleCreateTLSSecret creates a kubernetes.io/tls Secret for a custom/BYO
+// cert, referenced from compose with x-orcinus-tls-secret.
+func (s *Server) handleCreateTLSSecret(w http.ResponseWriter, r *http.Request) {
+	var body TLSSecretRequest
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Name == "" || body.Cert == "" || body.Key == "" {
+		writeErr(w, http.StatusBadRequest, "name, cert and key are required")
+		return
+	}
+	ns := body.Namespace
+	if ns == "" {
+		ns = namespaceOrDefault(r)
+	}
+	a, err := s.applier()
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	data := map[string][]byte{"tls.crt": []byte(body.Cert), "tls.key": []byte(body.Key)}
+	if err := a.ApplySecret(r.Context(), ns, body.Name, corev1.SecretTypeTLS, data); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"name": body.Name, "namespace": ns, "type": string(corev1.SecretTypeTLS)})
+}
+
+// secretStatus maps a missing Secret to 404 instead of a blanket 500.
+func secretStatus(err error) int {
+	if apierrors.IsNotFound(err) {
+		return http.StatusNotFound
+	}
+	return http.StatusInternalServerError
 }
 
 // RegistrySecretRequest is the body for creating a private-registry pull secret.

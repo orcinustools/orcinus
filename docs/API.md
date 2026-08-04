@@ -66,8 +66,11 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/projects
 | `DELETE /api/v1/projects/{project}` | Remove a project's resources |
 | `POST /api/v1/projects/{project}/services/{service}/scale` | Scale a service |
 | `POST /api/v1/projects/{project}/services/{service}/rollback` | Roll back a service |
-| `GET /api/v1/secrets` | List secrets |
-| `POST /api/v1/secrets` | Create/update an opaque secret |
+| `GET /api/v1/secrets` | List secrets (name, type, key names) |
+| `POST /api/v1/secrets` | Create an opaque secret — **replaces** an existing one |
+| `GET /api/v1/secrets/{name}` | Show a secret's keys (`?showValues=true` for values) |
+| `PATCH /api/v1/secrets/{name}` | Set keys, keeping the ones not named |
+| `POST /api/v1/secrets/tls` | Create a TLS secret from an inline PEM cert + key |
 | `DELETE /api/v1/secrets/{name}` | Delete a secret |
 | `GET /api/v1/plugins` | List plugins + install state |
 | `POST /api/v1/plugins/{name}` | Install a plugin |
@@ -149,6 +152,52 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/secrets
 curl -H "Authorization: Bearer $TOKEN" -X DELETE http://localhost:8080/api/v1/secrets/app-config
 ```
+
+**Read one secret.** Keys are listed and values withheld unless asked for, so a
+listing is safe to fetch:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/secrets/app-config
+# {"keys":["BAZ","FOO"],"managedBy":true,"name":"app-config",
+#  "namespace":"default","redacted":true,"type":"Opaque"}
+
+curl -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8080/api/v1/secrets/app-config?showValues=true'
+```
+
+**Change one key.** `POST` writes the whole secret and drops keys it was not
+given; `PATCH` merges, and creates the secret if it is absent:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X PATCH -d '{"data":{"FOO":"updated"}}' \
+  http://localhost:8080/api/v1/secrets/app-config
+# {"keys":2,"name":"app-config","namespace":"default","set":1,
+#  "note":"running pods keep the old values until restarted"}
+```
+
+Env vars are injected when a container starts, so a changed secret does not
+reach a running pod — restart the service afterwards
+(`POST /api/v1/projects/{project}/services/{service}/restart`).
+
+**BYO TLS cert** — the CLI reads PEM files, over HTTP the contents go inline:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"name\":\"mysite-cert\",\"cert\":$(jq -Rs . < fullchain.pem),\"key\":$(jq -Rs . < privkey.pem)}" \
+  http://localhost:8080/api/v1/secrets/tls
+```
+
+Every secret route takes `?namespace=` (default `default`). Secrets created here
+are labelled `managed-by=orcinus`, so they show up in
+`GET /api/v1/secrets` with `ManagedBy: true`.
+
+> **Compose keys that reference local files do not work over HTTP.** Only the
+> compose text is uploaded, so `env_file:`, `configs:`/`secrets:` with `file:`,
+> and bind mounts have nothing to resolve against and the request fails naming
+> the missing path. Inline the values (`environment:`), or reference a Secret
+> that already exists in the cluster with `x-orcinus-env-from-secret` — that one
+> works over HTTP, since it resolves in the cluster rather than on disk.
 
 ## 7. Plugins
 
