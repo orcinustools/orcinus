@@ -543,8 +543,8 @@ orcinus rollback web            # revert web to the prior revision
 Manage Kubernetes Secrets — including bring-your-own TLS certs.
 
 ```
-orcinus secret create <name> --from-literal KEY=VALUE [...]
-orcinus secret set <name> --from-literal KEY=VALUE [...]
+orcinus secret create <name> --from-literal KEY=VALUE [--from-file PATH]
+orcinus secret set <name> --from-literal KEY=VALUE [--from-file PATH]
 orcinus secret get <name> [--show-values]
 orcinus secret create-tls <name> --cert <file> --key <file>
 orcinus secret create-registry <name> --server <host> -u <user> -p <pass>
@@ -554,8 +554,8 @@ orcinus secret rm <name>
 
 | Subcommand | Purpose |
 |---|---|
-| `create` | Opaque secret from `--from-literal KEY=VALUE` (repeatable) — load it into a service with `x-orcinus-env-from-secret`. **Replaces** an existing secret of the same name |
-| `set` | Change individual keys, keeping the ones not named; creates the secret if absent |
+| `create` | Opaque secret from `--from-literal KEY=VALUE` and/or `--from-file PATH` (both repeatable) — load it into a service with `x-orcinus-env-from-secret`. **Replaces** an existing secret of the same name |
+| `set` | Change individual keys, keeping the ones not named; creates the secret if absent. Same inputs as `create` |
 | `get` | Show a secret's keys; values are hidden unless `--show-values` |
 | `create-tls` | TLS secret from a PEM cert + key — reference with `x-orcinus-tls-secret` |
 | `create-registry` | Private-registry pull secret — **tests the login first**, then reference with `x-orcinus-image-pull-secret` (`--insecure`, `--skip-login-check`; see [`REGISTRY.md`](./REGISTRY.md)) |
@@ -570,6 +570,20 @@ orcinus secret create db-creds --from-literal PASSWORD=s3cr3t
 orcinus secret create-tls mysite-cert --cert fullchain.pem --key privkey.pem
 orcinus secret create-registry regcred --server ghcr.io -u me -p "$GHCR_PAT"
 ```
+
+**Importing a file.** `--from-file` reads raw bytes, so binary content and
+trailing newlines survive intact:
+
+```bash
+orcinus secret create tlsbundle --from-file ./cert.pem          # key: "cert.pem"
+orcinus secret create apikey    --from-file apikey=./api.key    # key: "apikey"
+orcinus secret create appconf   --from-file ./conf.d            # one key per file
+```
+
+Prefer this over `--from-literal KEY="$(cat file)"`: command substitution strips
+the trailing newline (which breaks PEM parsers), the shell caps arguments at
+`ARG_MAX`, and binary content cannot survive an argv round trip at all. A file
+name that is not a usable Secret key must be given one explicitly (`KEY=path`).
 
 **Changing one key.** `create` writes the whole secret, so it drops any key it
 is not given (it says so when it does). To change one value and keep the rest,

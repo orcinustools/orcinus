@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -293,6 +294,30 @@ type SecretRequest struct {
 	Name      string            `json:"name"`
 	Namespace string            `json:"namespace"`
 	Data      map[string]string `json:"data"`
+	// DataBase64 carries values JSON cannot: raw binary, or bytes that are not
+	// valid UTF-8. It is the HTTP counterpart of the CLI's --from-file. A file
+	// path would be the wrong shape here — it would name a file on the server,
+	// not on the caller's machine, and invite reading arbitrary server files.
+	DataBase64 map[string]string `json:"dataBase64"`
+}
+
+// payload merges a request's plain and base64 values into Secret data.
+func (b SecretRequest) payload() (map[string][]byte, error) {
+	data := map[string][]byte{}
+	for k, v := range b.Data {
+		data[k] = []byte(v)
+	}
+	for k, v := range b.DataBase64 {
+		if _, clash := data[k]; clash {
+			return nil, fmt.Errorf("key %q given in both data and dataBase64", k)
+		}
+		raw, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			return nil, fmt.Errorf("dataBase64[%q]: %w", k, err)
+		}
+		data[k] = raw
+	}
+	return data, nil
 }
 
 func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
@@ -301,8 +326,13 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if body.Name == "" || len(body.Data) == 0 {
-		writeErr(w, http.StatusBadRequest, "name and non-empty data are required")
+	if body.Name == "" || (len(body.Data) == 0 && len(body.DataBase64) == 0) {
+		writeErr(w, http.StatusBadRequest, "name and non-empty data or dataBase64 are required")
+		return
+	}
+	data, err := body.payload()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	ns := body.Namespace
@@ -313,10 +343,6 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusServiceUnavailable, err.Error())
 		return
-	}
-	data := map[string][]byte{}
-	for k, v := range body.Data {
-		data[k] = []byte(v)
 	}
 	if err := a.ApplySecret(r.Context(), ns, body.Name, corev1.SecretTypeOpaque, data); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -367,8 +393,13 @@ func (s *Server) handlePatchSecret(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if len(body.Data) == 0 {
-		writeErr(w, http.StatusBadRequest, "non-empty data is required")
+	if len(body.Data) == 0 && len(body.DataBase64) == 0 {
+		writeErr(w, http.StatusBadRequest, "non-empty data or dataBase64 is required")
+		return
+	}
+	data, err := body.payload()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	a, err := s.applier()
@@ -380,10 +411,6 @@ func (s *Server) handlePatchSecret(w http.ResponseWriter, r *http.Request) {
 	ns := namespaceOrDefault(r)
 	if body.Namespace != "" {
 		ns = body.Namespace
-	}
-	data := map[string][]byte{}
-	for k, v := range body.Data {
-		data[k] = []byte(v)
 	}
 	if err := a.MergeSecret(r.Context(), ns, name, corev1.SecretTypeOpaque, data); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

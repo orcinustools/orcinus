@@ -180,6 +180,19 @@ Env vars are injected when a container starts, so a changed secret does not
 reach a running pod — restart the service afterwards
 (`POST /api/v1/projects/{project}/services/{service}/restart`).
 
+**Importing a file** — the CLI's `--from-file` counterpart is `dataBase64`,
+which carries bytes JSON cannot (binary, or anything not valid UTF-8):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"name\":\"apikey\",\"dataBase64\":{\"apikey\":\"$(base64 < api.key | tr -d '\n')\"}}" \
+  http://localhost:8080/api/v1/secrets
+```
+
+`data` and `dataBase64` can be used together, but a key may appear in only one.
+There is deliberately no file-path field: a path would name a file on the
+*server*, not on the caller's machine.
+
 **BYO TLS cert** — the CLI reads PEM files, over HTTP the contents go inline:
 
 ```bash

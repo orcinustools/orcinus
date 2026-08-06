@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -24,20 +26,116 @@ func newSecretCmd() *cobra.Command {
 	return cmd
 }
 
-// parseLiterals turns repeated --from-literal KEY=VALUE flags into Secret data.
-func parseLiterals(literals []string) (map[string][]byte, error) {
-	if len(literals) == 0 {
-		return nil, fmt.Errorf("provide at least one --from-literal KEY=VALUE")
+// secretKeyRe is what Kubernetes accepts as a Secret data key. A file whose
+// name does not fit has to be given an explicit key.
+var secretKeyRe = regexp.MustCompile(`^[-._a-zA-Z0-9]+$`)
+
+// secretData builds the Secret payload from --from-literal and --from-file.
+// Files are read as raw bytes, so binary content and trailing newlines survive
+// intact — neither does when a value is routed through a shell argument.
+func secretData(literals, files []string) (map[string][]byte, error) {
+	if len(literals) == 0 && len(files) == 0 {
+		return nil, fmt.Errorf("provide at least one --from-literal KEY=VALUE or --from-file PATH")
 	}
 	data := map[string][]byte{}
+	if err := addLiterals(data, literals); err != nil {
+		return nil, err
+	}
+	if err := addFiles(data, files); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// addLiterals folds KEY=VALUE pairs into data.
+func addLiterals(data map[string][]byte, literals []string) error {
 	for _, kv := range literals {
 		i := strings.IndexByte(kv, '=')
 		if i <= 0 {
-			return nil, fmt.Errorf("invalid --from-literal %q (want KEY=VALUE)", kv)
+			return fmt.Errorf("invalid --from-literal %q (want KEY=VALUE)", kv)
 		}
-		data[kv[:i]] = []byte(kv[i+1:])
+		key := kv[:i]
+		if !secretKeyRe.MatchString(key) {
+			return fmt.Errorf("invalid key %q in --from-literal: use letters, digits, '-', '_' or '.'", key)
+		}
+		data[key] = []byte(kv[i+1:])
 	}
-	return data, nil
+	return nil
+}
+
+// addFiles folds --from-file entries into data. An entry is a path, whose base
+// name becomes the key; KEY=PATH to name the key; or a directory, where every
+// regular file inside becomes a key of its own.
+func addFiles(data map[string][]byte, files []string) error {
+	for _, entry := range files {
+		key, path := "", entry
+		// Split on the first '=', but only when the left side looks like a key
+		// rather than part of a Windows drive or an odd filename.
+		if i := strings.IndexByte(entry, '='); i > 0 && secretKeyRe.MatchString(entry[:i]) {
+			key, path = entry[:i], entry[i+1:]
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("--from-file %q: %w", path, err)
+		}
+		if !info.IsDir() {
+			if key == "" {
+				key = filepath.Base(path)
+			}
+			if err := addFile(data, key, path); err != nil {
+				return err
+			}
+			continue
+		}
+		if key != "" {
+			return fmt.Errorf("--from-file %q: a key cannot be given for a directory; each file in it becomes its own key", entry)
+		}
+		if err := addDir(data, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addDir folds every regular file directly inside dir into data. Nested
+// directories are skipped rather than flattened, so keys stay predictable.
+func addDir(data map[string][]byte, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("--from-file %q: %w", dir, err)
+	}
+	found := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if err := addFile(data, e.Name(), filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+		found++
+	}
+	if found == 0 {
+		return fmt.Errorf("--from-file %q: directory has no files", dir)
+	}
+	return nil
+}
+
+// addFile reads one file into data under key, refusing to overwrite a key that
+// another flag already set — silently keeping one of two values would be worse
+// than saying which flag to fix.
+func addFile(data map[string][]byte, key, path string) error {
+	if !secretKeyRe.MatchString(key) {
+		return fmt.Errorf("--from-file %q: %q is not a usable key; pass KEY=%s to name it", path, key, path)
+	}
+	if _, taken := data[key]; taken {
+		return fmt.Errorf("--from-file %q: key %q was already set by another flag", path, key)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("--from-file %q: %w", path, err)
+	}
+	data[key] = content
+	return nil
 }
 
 func applierFor(kubeconfig string) (*deploy.Applier, error) {
@@ -50,17 +148,24 @@ func applierFor(kubeconfig string) (*deploy.Applier, error) {
 
 func newSecretCreateCmd() *cobra.Command {
 	var kubeconfig, namespace string
-	var literals []string
+	var literals, files []string
 	cmd := &cobra.Command{
-		Use:   "create <name> --from-literal KEY=VALUE [...]",
+		Use:   "create <name> [--from-literal KEY=VALUE] [--from-file PATH]",
 		Short: "Create an opaque Secret, replacing it if it exists",
-		Long: `Create an opaque Secret from --from-literal KEY=VALUE pairs.
+		Long: `Create an opaque Secret from --from-literal KEY=VALUE pairs and/or files.
+
+  --from-file ./api.key          key is the file name ("api.key")
+  --from-file apikey=./api.key   key is given explicitly
+  --from-file ./conf.d           every file in the directory becomes a key
+
+Files are read as raw bytes, so binary content and trailing newlines are kept
+exactly — passing a file through --from-literal "$(cat f)" loses both.
 
 An existing Secret of the same name is REPLACED: keys not passed here are
 dropped. To change one key and keep the rest, use ` + "`orcinus secret set`" + `.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			data, err := parseLiterals(literals)
+			data, err := secretData(literals, files)
 			if err != nil {
 				return err
 			}
@@ -95,16 +200,20 @@ dropped. To change one key and keep the rest, use ` + "`orcinus secret set`" + `
 	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig")
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "namespace")
 	cmd.Flags().StringArrayVar(&literals, "from-literal", nil, "KEY=VALUE (repeatable)")
+	cmd.Flags().StringArrayVar(&files, "from-file", nil, "PATH, KEY=PATH, or a directory (repeatable); read as raw bytes")
 	return cmd
 }
 
 func newSecretSetCmd() *cobra.Command {
 	var kubeconfig, namespace string
-	var literals []string
+	var literals, files []string
 	cmd := &cobra.Command{
-		Use:   "set <name> --from-literal KEY=VALUE [...]",
+		Use:   "set <name> [--from-literal KEY=VALUE] [--from-file PATH]",
 		Short: "Set keys on a Secret, keeping the ones not named",
 		Long: `Set individual keys on a Secret without touching the rest.
+
+Takes the same --from-literal and --from-file inputs as ` + "`orcinus secret create`" + `,
+including reading a file as raw bytes (` + "`--from-file apikey=./api.key`" + `).
 
 Unlike ` + "`orcinus secret create`" + `, keys that are not named here are kept.
 The Secret is created if it does not exist yet.
@@ -113,7 +222,7 @@ Pods do not pick up a changed Secret on their own — env vars are injected when
 the container starts. Restart the service afterwards (` + "`orcinus restart <service>`" + `).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			data, err := parseLiterals(literals)
+			data, err := secretData(literals, files)
 			if err != nil {
 				return err
 			}
@@ -152,6 +261,7 @@ the container starts. Restart the service afterwards (` + "`orcinus restart <ser
 	cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig")
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "namespace")
 	cmd.Flags().StringArrayVar(&literals, "from-literal", nil, "KEY=VALUE (repeatable)")
+	cmd.Flags().StringArrayVar(&files, "from-file", nil, "PATH, KEY=PATH, or a directory (repeatable); read as raw bytes")
 	return cmd
 }
 

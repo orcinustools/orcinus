@@ -6,6 +6,10 @@ tags: [secrets]
 Generic secret:      orcinus secret create app-secret --from-literal FOO=bar
                      then: x-orcinus-env-from-secret: app-secret  on the service
                      → every key in the Secret becomes an env var
+From a file:         orcinus secret create certs --from-file tls.pem=./cert.pem
+                     --from-file also takes a bare path (key = file name) or a
+                     directory (one key per file). Raw bytes, so binary and
+                     trailing newlines survive — unlike --from-literal "$(cat f)".
 BYO TLS cert:        orcinus secret create-tls mysite-cert --cert fullchain.pem --key privkey.pem
                      then: x-orcinus-tls-secret: mysite-cert  on the service
 Registry login:      orcinus secret create-registry ... (see skill: private-registry)

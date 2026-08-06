@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -256,4 +257,54 @@ func jsonString(s string) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+// TestSecretDataBase64Validated: dataBase64 is the HTTP counterpart of
+// --from-file, so a malformed payload has to be rejected before any cluster
+// call rather than writing corrupt bytes into a Secret.
+func TestSecretDataBase64Validated(t *testing.T) {
+	h := testServer("")
+	for _, tc := range []struct {
+		name, method, path, body string
+		want                     int
+	}{
+		{"create with bad base64", "POST", "/api/v1/secrets",
+			`{"name":"s","dataBase64":{"k":"!!!not base64!!!"}}`, http.StatusBadRequest},
+		{"patch with bad base64", "PATCH", "/api/v1/secrets/s",
+			`{"dataBase64":{"k":"@@@"}}`, http.StatusBadRequest},
+		{"key in both maps", "POST", "/api/v1/secrets",
+			`{"name":"s","data":{"k":"a"},"dataBase64":{"k":"YQ=="}}`, http.StatusBadRequest},
+		{"neither map given", "POST", "/api/v1/secrets",
+			`{"name":"s"}`, http.StatusBadRequest},
+		// Valid base64 gets past validation and only then wants a cluster.
+		{"valid base64", "POST", "/api/v1/secrets",
+			`{"name":"s","dataBase64":{"k":"QQBC/0M="}}`, http.StatusServiceUnavailable},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Errorf("%s = %d, want %d: %s", tc.name, rec.Code, tc.want, rec.Body.String())
+		}
+	}
+}
+
+// TestSecretPayloadDecodesBinary: the bytes JSON could not have carried.
+func TestSecretPayloadDecodesBinary(t *testing.T) {
+	body := SecretRequest{
+		Data:       map[string]string{"text": "plain"},
+		DataBase64: map[string]string{"blob": "QQBC/0M="}, // A \x00 B \xFF C
+	}
+	data, err := body.payload()
+	if err != nil {
+		t.Fatalf("payload: %v", err)
+	}
+	if string(data["text"]) != "plain" {
+		t.Errorf("text = %q, want plain", data["text"])
+	}
+	want := []byte{'A', 0x00, 'B', 0xFF, 'C'}
+	if !bytes.Equal(data["blob"], want) {
+		t.Errorf("blob = %v, want %v", data["blob"], want)
+	}
 }
