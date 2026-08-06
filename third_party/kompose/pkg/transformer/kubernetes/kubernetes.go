@@ -647,11 +647,18 @@ func (k *Kubernetes) CreateSecrets(komposeObject kobject.KomposeObject) ([]*api.
 				Data: map[string][]byte{resourceName: data},
 			}
 			objects = append(objects, secret)
-		} else {
+		} else if bool(config.External) {
 			// `external: true` means the Secret already exists in the cluster,
 			// so there is nothing to create — the volume that mounts it still
 			// references it by name. Not a problem, and not ignored.
 			log.Infof("Secret %q is external: using the one in the cluster, not creating it", name)
+		} else if config.Environment != "" {
+			// Compose would read the value from that environment variable. We
+			// do not, and saying nothing leaves a service referencing a Secret
+			// that will never exist.
+			log.Warnf("Secret %q takes its value from environment variable %q, which orcinus does not support: no Secret is created. Use `file:`, `external: true`, or `orcinus secret create`.", name, config.Environment)
+		} else {
+			log.Warnf("Secret %q has no `file:` and is not `external: true`, so no Secret is created", name)
 		}
 	}
 	return objects, nil
