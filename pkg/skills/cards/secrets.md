@@ -15,7 +15,12 @@ BYO TLS cert:        orcinus secret create-tls mysite-cert --cert fullchain.pem 
 Registry login:      orcinus secret create-registry ... (see skill: private-registry)
 Move env vars into a Secret: x-orcinus-secret: [DB_PASSWORD] on the service.
   (that CREATES a Secret from compose values — not for referencing an existing one)
-Mount an existing Secret as a file instead: compose `secrets:` with `external: true`;
+All from orcinus.yml, no CLI: a top-level `secrets: {apikey: {file: ./api.key}}`
+  CREATES the Secret. Creating and consuming are separate — list it under a
+  service's `secrets:` to mount it as a file, add x-orcinus-env-from-secret to
+  load it as env vars, or do both. The data key is the secret's name, so the env
+  var is named after the secret, not the file.
+Reference a Secret this file did NOT create: compose `secrets:` with `external: true`;
   the map key must equal the Secret's name, and it needs a data key of that name too.
 Inspect:             orcinus secret ls                  (names + key names)
                      orcinus secret get app-secret      (keys; values need --show-values)

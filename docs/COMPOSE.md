@@ -21,7 +21,7 @@ Legend: ✅ supported · ⚠️ partial / best-effort · ❌ not mapped
 | `volumes` (named) | `PersistentVolumeClaim` (size via `x-orcinus-volume-size`) | ✅ |
 | `volumes` (bind mount) | `hostPath` (node-local) — see [Volumes](./USAGE.md#7-volumes--storage) | ✅ |
 | `configs` | `ConfigMap` mounted at the target (relative `file:` supported) | ✅ |
-| `secrets` | `Secret` mounted at the target (relative `file:`, or `external: true` for an existing one) | ✅ |
+| `secrets` | `Secret` — `file:` creates one, `external: true` uses one already in the cluster; consume it as a mounted file, as env vars via `x-orcinus-env-from-secret`, or both | ✅ |
 | `healthcheck` | `livenessProbe` (readiness via `kompose.service.healthcheck.readiness.*` labels) | ✅ |
 | `restart` | pod `restartPolicy` | ✅ |
 | `user` | `securityContext.runAsUser`/`runAsGroup` | ✅ |
