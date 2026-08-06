@@ -495,7 +495,10 @@ services:
 // nodeAffinity (schedulable when satisfied, Pending when not).
 func TestLivePlacement(t *testing.T) {
 	requireLive(t)
-	orcinus, kubectl := liveCluster(t, "orcinus-pl", 16488)
+	// Distinct container name: TestLivePlugins already uses "orcinus-pl", and
+	// liveCluster does `docker rm -f <name>` on the way in, so sharing it means
+	// whichever runs second tears down the other's cluster.
+	orcinus, kubectl := liveCluster(t, "orcinus-place", 16488)
 
 	nodeOut, err := kubectl("get", "nodes", "-o", "jsonpath={.items[0].metadata.name}")
 	if err != nil {

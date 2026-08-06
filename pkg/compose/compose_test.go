@@ -1,10 +1,13 @@
 package compose
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sirupsen/logrus"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -1496,4 +1499,122 @@ secrets:
 	if got := envFromSecretNames(pod.Containers[0]); len(got) != 1 {
 		t.Errorf("envFrom secretRefs = %v, want the secret loaded as env too", got)
 	}
+}
+
+// TestConvertNamedVolumeIsQuiet: a named volume has no host path, so nothing
+// should try to stat one. The fork used to build a synthetic ":<target>"
+// mount path and stat that, warning "File don't exist" once per volume on
+// every single deploy — alarming, untrue, and impossible to act on.
+func TestConvertNamedVolumeIsQuiet(t *testing.T) {
+	var logs bytes.Buffer
+	prev := logrus.StandardLogger().Out
+	logrus.SetOutput(&logs)
+	t.Cleanup(func() { logrus.SetOutput(prev) })
+
+	objs := convertString(t, `
+services:
+  db:
+    image: postgres:16
+    volumes:
+      - data:/var/lib/postgresql/data
+volumes:
+  data:
+`)
+	// The volume still becomes a PVC — this is about the noise, not the output.
+	found := false
+	for _, o := range objs {
+		if _, ok := o.(*corev1.PersistentVolumeClaim); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("named volume did not produce a PersistentVolumeClaim")
+	}
+
+	out := logs.String()
+	for _, unwanted := range []string{"File don't exist", ":/var/lib/postgresql/data"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("conversion logged %q for a named volume:\n%s", unwanted, out)
+		}
+	}
+}
+
+// TestConvertSecretSourcesAreDistinguished: three different situations used to
+// share one message. `external: true` is fine and says so; `environment:` is
+// not supported and has to warn, because a service referencing that secret ends
+// up pointing at a Secret that will never exist.
+func TestConvertSecretSourcesAreDistinguished(t *testing.T) {
+	capture := func(t *testing.T, compose string, files map[string]string) string {
+		t.Helper()
+		var logs bytes.Buffer
+		prev := logrus.StandardLogger().Out
+		logrus.SetOutput(&logs)
+		t.Cleanup(func() { logrus.SetOutput(prev) })
+		if _, err := writeProject(t, compose, files); err != nil {
+			t.Fatalf("Convert: %v", err)
+		}
+		return logs.String()
+	}
+
+	external := capture(t, `
+services:
+  app:
+    image: myapp:1.0
+    secrets: [s]
+secrets:
+  s:
+    external: true
+`, nil)
+	if !strings.Contains(external, "is external") {
+		t.Errorf("external secret should say it uses the cluster's:\n%s", external)
+	}
+	if line := logLineAbout(external, "is external"); !strings.Contains(line, "level=info") {
+		t.Errorf("external is a normal setup, not a warning: %s", line)
+	}
+
+	fromEnv := capture(t, `
+services:
+  app:
+    image: myapp:1.0
+    secrets: [s]
+secrets:
+  s:
+    environment: MY_VAR
+`, nil)
+	if strings.Contains(fromEnv, "using the one in the cluster") {
+		t.Errorf("environment: is not an external secret; no Secret exists to use:\n%s", fromEnv)
+	}
+	if !strings.Contains(fromEnv, "MY_VAR") || !strings.Contains(fromEnv, "does not support") {
+		t.Errorf("environment: should warn, naming the variable:\n%s", fromEnv)
+	}
+
+	// A file-backed secret is the ordinary case and should say nothing at all.
+	fromFile := capture(t, `
+services:
+  app:
+    image: myapp:1.0
+    secrets: [s]
+secrets:
+  s:
+    file: ./api.key
+`, map[string]string{"api.key": "v\n"})
+	// logrus escapes the quotes inside msg, so matching on `Secret "s"` would
+	// never fire — assert on the phrases each branch actually emits instead.
+	for _, chatter := range []string{"is external", "does not support", "no Secret is created"} {
+		if strings.Contains(fromFile, chatter) {
+			t.Errorf("a file-backed secret should convert quietly, got %q:\n%s", chatter, fromFile)
+		}
+	}
+}
+
+// logLineAbout returns the captured log line mentioning want, so an assertion
+// about its level is not fooled by unrelated warnings in the same output.
+// Match on plain phrases: logrus escapes quotes inside the msg field.
+func logLineAbout(logs, want string) string {
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, want) {
+			return line
+		}
+	}
+	return ""
 }
