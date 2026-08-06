@@ -1419,3 +1419,81 @@ services:
 		t.Error("Rollout did not inherit the envFrom secretRef")
 	}
 }
+
+// TestConvertSecretFileToEnv: a top-level `secrets: {x: {file: ...}}` creates
+// the Secret on its own — a service does not have to mount it. Combined with
+// x-orcinus-env-from-secret that is a file-to-environment-variable path with no
+// volume involved, which is easy to miss and worth pinning.
+func TestConvertSecretFileToEnv(t *testing.T) {
+	objs, err := writeProject(t, `
+services:
+  app:
+    image: myapp:1.0
+    x-orcinus-env-from-secret: apikey
+secrets:
+  apikey:
+    file: ./api.key
+`, map[string]string{"api.key": "secret-content\n"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+
+	var secret *corev1.Secret
+	for _, o := range objs {
+		if s, ok := o.(*corev1.Secret); ok && s.Name == "apikey" {
+			secret = s
+		}
+	}
+	if secret == nil {
+		t.Fatal("no Secret generated from the top-level secrets: entry")
+	}
+	// Verbatim, trailing newline included — the point of reading the file.
+	if got := string(secret.Data["apikey"]); got != "secret-content\n" {
+		t.Errorf("Secret data = %q, want the file byte-for-byte", got)
+	}
+
+	pod := firstDeployment(t, objs).Spec.Template.Spec
+	if len(pod.Volumes) != 0 {
+		t.Errorf("volumes = %+v, want none: the service never mounted the secret", pod.Volumes)
+	}
+	c := pod.Containers[0]
+	if len(c.VolumeMounts) != 0 {
+		t.Errorf("volumeMounts = %+v, want none", c.VolumeMounts)
+	}
+	if got := envFromSecretNames(c); len(got) != 1 || got[0] != "apikey" {
+		t.Fatalf("envFrom secretRefs = %v, want [apikey]", got)
+	}
+}
+
+// TestConvertSecretFileMountedAndEnv: mounting and loading as env are
+// independent, so asking for both gives both from one Secret.
+func TestConvertSecretFileMountedAndEnv(t *testing.T) {
+	objs, err := writeProject(t, `
+services:
+  app:
+    image: myapp:1.0
+    x-orcinus-env-from-secret: apikey
+    secrets:
+      - source: apikey
+        target: /etc/app/api.key
+secrets:
+  apikey:
+    file: ./api.key
+`, map[string]string{"api.key": "secret-content\n"})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	pod := firstDeployment(t, objs).Spec.Template.Spec
+	mounted := false
+	for _, v := range pod.Volumes {
+		if v.Secret != nil && v.Secret.SecretName == "apikey" {
+			mounted = true
+		}
+	}
+	if !mounted {
+		t.Errorf("volumes = %+v, want the secret mounted", pod.Volumes)
+	}
+	if got := envFromSecretNames(pod.Containers[0]); len(got) != 1 {
+		t.Errorf("envFrom secretRefs = %v, want the secret loaded as env too", got)
+	}
+}

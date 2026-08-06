@@ -551,13 +551,25 @@ components:
         key: { type: string, description: PEM private key }
     SecretRequest:
       type: object
-      required: [name, data]
+      description: >
+        One of `data` or `dataBase64` must be non-empty. A key may appear in
+        only one of them.
+      required: [name]
       properties:
         name: { type: string }
         namespace: { type: string, default: default }
         data:
           type: object
+          description: plain string values
           additionalProperties: { type: string }
+        dataBase64:
+          type: object
+          description: >
+            base64-encoded values, for bytes JSON cannot carry — binary, or
+            anything that is not valid UTF-8. The HTTP counterpart of the CLI's
+            `--from-file`. There is no file-path field on purpose: a path would
+            name a file on the server, not on the caller's machine.
+          additionalProperties: { type: string, format: byte }
     RegistrySecretRequest:
       type: object
       required: [name, server, username, password]

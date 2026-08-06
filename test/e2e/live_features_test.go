@@ -381,6 +381,21 @@ func TestLiveSecret(t *testing.T) {
 		t.Errorf("BAZ = %q, want it untouched by set", got)
 	}
 
+	// --from-file reads raw bytes. The trailing newline is the point: routing a
+	// file through --from-literal "$(cat f)" silently drops it, and a PEM parser
+	// on the other end then fails for reasons that point nowhere near the cause.
+	pem := "-----BEGIN KEY-----\nabc\n-----END KEY-----\n"
+	keyPath := writeTemp(t, "api.key", pem)
+	if out, err := orcinus("secret", "set", "app-config", "--from-file", "apikey="+keyPath); err != nil {
+		t.Fatalf("secret set --from-file: %v\n%s", err, out)
+	}
+	if got, _ := kubectl("get", "secret", "app-config", "-o", "jsonpath={.data.apikey}"); got != b64(pem) {
+		t.Errorf("apikey = %q, want the file byte-for-byte including its trailing newline", got)
+	}
+	if got, _ := kubectl("get", "secret", "app-config", "-o", "jsonpath={.data.BAZ}"); got != b64("qux") {
+		t.Errorf("BAZ = %q, want --from-file to leave it alone", got)
+	}
+
 	// set on a name that does not exist yet is a create.
 	if out, err := orcinus("secret", "set", "fresh-secret", "--from-literal", "K=v"); err != nil {
 		t.Fatalf("secret set on a missing secret: %v\n%s", err, out)
