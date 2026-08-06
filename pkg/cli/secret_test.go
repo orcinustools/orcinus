@@ -222,6 +222,7 @@ func TestSecretDataFromFileErrors(t *testing.T) {
 		{"file name is not a usable key", nil, []string{odd}, "not a usable key"},
 		{"key given for a directory", nil, []string{"k=" + dir}, "cannot be given for a directory"},
 		{"empty directory", nil, []string{empty}, "no files"},
+		{"directory holding an unusable file name", nil, []string{dirWithOddName(t)}, "not a usable key"},
 		{"file collides with a literal", []string{"ok.txt=v"}, []string{ok}, "already set"},
 		{"two files collide", nil, []string{"k=" + ok, "k=" + ok}, "already set"},
 	} {
@@ -256,4 +257,14 @@ func keysOf(data map[string][]byte) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// dirWithOddName returns a directory holding a file whose name cannot be a
+// Secret key — the directory scan has to catch it too, not just a bare path.
+func dirWithOddName(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, dir, "fine.conf", []byte("x"))
+	writeFile(t, dir, "not a key.conf", []byte("x"))
+	return dir
 }
