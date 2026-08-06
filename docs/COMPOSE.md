@@ -168,6 +168,48 @@ Relative `file:` paths resolve against the compose file's directory (deploy from
 the project dir, or pass an absolute path). For a private-registry login use
 [`orcinus secret create-registry`](./REGISTRY.md), not a compose secret.
 
+### Importing a file into a Secret
+
+`secrets: { <name>: { file: ./path } }` is the declarative way to get a file's
+contents into a Secret — the CLI's `--from-file` without leaving the compose
+file. The bytes are taken verbatim, trailing newline included.
+
+**Creating the Secret and consuming it are separate steps.** The top-level
+`secrets:` entry creates it; how a service uses it is up to the service. Listing
+it under a service's `secrets:` mounts it as a file, `x-orcinus-env-from-secret`
+loads it as environment variables, and you can do both, or neither:
+
+```yaml
+services:
+  app:
+    image: myapp:1.0
+    x-orcinus-env-from-secret: apikey   # → env var, no volume at all
+    secrets:                            # → and/or mounted as a file
+      - source: apikey
+        target: /etc/app/api.key
+secrets:
+  apikey:
+    file: ./api.key                     # creates the Secret either way
+```
+
+Two things to know before you rely on it:
+
+- **The data key is always the secret's name**, whatever the file is called. A
+  `name:` field is accepted by the parser and then ignored. Since
+  `x-orcinus-env-from-secret` turns each key into a variable of the same name,
+  `apikey: {file: ./api.key}` arrives in the container as `apikey=<contents>`.
+  To choose the variable name, create the Secret with
+  `orcinus secret create app-secret --from-file API_KEY=./api.key` and reference
+  it by name instead.
+- **`environment:` as a secret source is not supported.**
+  `secrets: { x: { environment: VAR } }` parses, then is silently skipped — no
+  Secret is created and nothing is mounted. (`content:` is rejected outright by
+  the schema, so at least that one tells you.)
+
+See [USAGE §5.13](./USAGE.md#513-orcinus-secret) for the CLI flag, and
+[Using a Secret that already exists](#using-a-secret-that-already-exists) above
+for referencing one this file did not create.
+
 ## GPUs
 
 Both the modern Compose GPU form and the older Swarm form map to a Kubernetes GPU
