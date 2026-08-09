@@ -35,6 +35,13 @@ e2e-live:
 e2e-tls:
 	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLiveIngressTLS -v -timeout 15m
 
+# Live `orcinus exec` e2e against a cluster that is already running — a shared
+# testing server, say — rather than booting one. It works inside a namespace of
+# its own, so whatever else is deployed there is left alone:
+#   make e2e-exec ORCINUS_E2E_KUBECONFIG=~/.orcinus/kubeconfig
+e2e-exec:
+	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLiveExec -v -timeout 15m
+
 # The standalone runtime asset (downloaded once into pkg/runtime/assets, gitignored).
 # The standalone orcinus binary embeds it via go:embed + the `standalone` build tag.
 RUNTIME_VERSION ?= v1.31.5+k3s1
