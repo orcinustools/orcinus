@@ -33,6 +33,10 @@ type Applier struct {
 	clientset kubernetes.Interface
 	mapper    meta.RESTMapper
 	dc        discovery.DiscoveryInterface // retained so the mapper can be refreshed
+	// cfg is kept for the subresources that need to build their own connection
+	// rather than go through the typed client — today `pods/exec`, which
+	// upgrades to a websocket/SPDY stream (see exec.go).
+	cfg *rest.Config
 }
 
 // AppliedRef records an object that was applied (used for prune bookkeeping).
@@ -131,7 +135,7 @@ func NewApplier(cfg *rest.Config) (*Applier, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discover API resources: %w", err)
 	}
-	return &Applier{dyn: dyn, clientset: cs, mapper: restmapper.NewDiscoveryRESTMapper(groups), dc: dc}, nil
+	return &Applier{dyn: dyn, clientset: cs, mapper: restmapper.NewDiscoveryRESTMapper(groups), dc: dc, cfg: cfg}, nil
 }
 
 // refreshMapper re-discovers API resources and rebuilds the REST mapper, so a

@@ -42,6 +42,7 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.20 `update`](#520-orcinus-update)
   - [5.21 `restart`](#521-orcinus-restart)
   - [5.22 `config`](#522-orcinus-config)
+  - [5.23 `exec`](#523-orcinus-exec)
 - [6. Datastore](#6-datastore)
 - [7. Volumes & storage](#7-volumes--storage)
 - [8. Placement & node constraints](#8-placement--node-constraints)
@@ -70,6 +71,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | List an app's pods | `orcinus ps <project>` |
 | Describe a resource | `orcinus describe <pod\|service\|project\|node> <name>` |
 | Tail logs | `orcinus logs <service>` |
+| Get a shell in a container | `orcinus exec -it <service> -- sh` |
 | Scale a service | `orcinus scale <service> <replicas>` |
 | Autoscale a service | `orcinus autoscale <service> --max N` |
 | Restart a service's pods | `orcinus restart <service>` |
@@ -82,7 +84,7 @@ Orcinus follows a **Docker Swarm-like** UX: few commands, familiar verbs.
 | Self-update the binary | `orcinus update` |
 
 Commands fall into two groups: **cluster lifecycle** (`init`, `join`, `status`,
-`down`) and **workloads** (`deploy`, `rm`, `ls`, `ps`, `logs`, `scale`,
+`down`) and **workloads** (`deploy`, `rm`, `ls`, `ps`, `logs`, `exec`, `scale`,
 `autoscale`, `rollback`, `secret`, `plugin`, `kubectl`).
 
 ---
@@ -813,6 +815,61 @@ Secret values are redacted in `k8s` output unless `--show-secrets` is passed;
 redacted output is no longer re-appliable as-is. The MCP tool and the HTTP API
 expose the same command but always redact.
 
+### 5.23 `orcinus exec`
+
+Run a command inside a running container — a shell to poke around in, a
+one-shot command, or something fed from a pipe.
+
+```
+orcinus exec <service> [flags] -- <command> [args...]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-i, --stdin` | `false` | Keep stdin open |
+| `-t, --tty` | `false` | Allocate a TTY (implies `--stdin`) |
+| `-c, --container <name>` | first | Container to enter, for a multi-container pod |
+| `--pod <name>` | — | Target this exact pod instead of resolving a service |
+| `-n, --namespace <ns>` | `default` | Namespace |
+| `--project <name>` | — | Further scope the service lookup to a project |
+| `--kubeconfig <path>` | auto | Target cluster |
+
+```bash
+orcinus exec -it web -- sh                    # a shell in the web service
+orcinus exec web -- cat /etc/hosts            # one-shot, output to your terminal
+cat dump.sql | orcinus exec -i db -- psql -U postgres
+orcinus exec -it --pod web-659655578f-bd4r6 -c sidecar -- sh
+```
+
+Put the command after `--` so its own flags (`ls -la`) are not read as orcinus
+flags. `orcinus exec web sh` works too, for a command that takes none.
+
+**What the target means.** Like `orcinus logs`, the argument is a compose
+**service** and orcinus picks one of its running pods; pods that are Pending or
+crash-looping are skipped, so `exec` lands somewhere a command can actually
+run. A name that matches no service is tried as a **pod name**, so a line
+copied out of `orcinus ps` can be pasted straight in. `--pod` skips service
+resolution entirely, including for pods orcinus does not manage.
+
+When a choice is made for you — one of several running pods, one of several
+containers — the pick is noted on stderr, so piped output stays clean:
+
+```
+service "web" has 3 running pods; using web-659655578f-bd4r6 (pin one with --pod)
+```
+
+A multi-container pod is entered at its first container unless `-c` says
+otherwise, or the pod carries the standard
+`kubectl.kubernetes.io/default-container` annotation.
+
+**Exit status is the command's own.** `orcinus exec web -- false` exits 1,
+`-- exit 42` exits 42, and nothing is printed about it — the same contract a
+shell gives you, so `exec` composes in scripts and CI:
+
+```bash
+orcinus exec db -- pg_isready || echo "database not up yet"
+```
+
 ---
 
 ## 6. Datastore
@@ -1116,6 +1173,10 @@ This produces two Ingresses (`app.local`, `api.local`) with no duplication.
 
 - Exit `0` on success; non-zero on error, with a message on stderr prefixed
   `error:`.
+- `exec` is the exception: it exits with the status of the command it ran, and
+  prints no message of its own for a non-zero one — the command already said
+  what it had to say. An orcinus-level failure (no such service, no cluster)
+  still exits `1` with an `error:` line.
 - `deploy` uses **server-side apply** (field manager `orcinus`) — it is
   idempotent and safe to re-run.
 - `--prune` only removes resources within the current `--project` scope; it never

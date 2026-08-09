@@ -78,6 +78,7 @@ bin/orcinus deploy -f examples/docker-compose.yml --kubeconfig ~/.kube/config --
 bin/orcinus ls                       # list managed projects
 bin/orcinus ps myapp                 # a project's pods + status
 bin/orcinus logs web -f              # stream a service's logs
+bin/orcinus exec -it web -- sh       # a shell inside a service's container
 bin/orcinus rm myapp                 # remove a project
 ```
 

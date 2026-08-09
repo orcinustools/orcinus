@@ -12,8 +12,10 @@ import (
 func main() {
 	root := cli.NewRootCmd()
 	// Cobra prints the error (and, for usage errors, the command help) itself;
-	// here we only need to set the non-zero exit code.
+	// here we only need to set the non-zero exit code. `orcinus exec` reports
+	// the status its remote command exited with, so ExitCode passes that
+	// through instead of flattening every failure to 1.
 	if err := root.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }
