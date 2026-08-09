@@ -18,6 +18,7 @@ Golden path:
     orcinus ls                                 # projects + readiness
     orcinus ps <project>                       # pods
     orcinus logs <service> -f
+    orcinus exec -it <service> -- sh            # shell into a container
     orcinus rm <project>                       # remove (danger)
     orcinus cluster down                       # tear down cluster (danger)
 

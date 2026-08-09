@@ -6,6 +6,8 @@ tags: [debug]
     orcinus ls                         # projects + READY
     orcinus ps <project>               # pods, status, node
     orcinus logs <service> -f          # stream logs
+    orcinus exec -it <service> -- sh   # shell inside a running container
+    orcinus exec <service> -- <cmd>    # one-shot; exits with the command's own status
     orcinus kubectl <args...>          # full kubectl passthrough (e.g. describe, get events)
 
 Pod Pending? Usually an unsatisfiable placement/nodeSelector, a missing PVC
