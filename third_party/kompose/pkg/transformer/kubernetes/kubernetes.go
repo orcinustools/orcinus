@@ -858,6 +858,7 @@ func (k *Kubernetes) ConfigTmpfs(name string, service kobject.ServiceConfig) ([]
 func (k *Kubernetes) ConfigSecretVolumes(name string, service kobject.ServiceConfig) ([]api.VolumeMount, []api.Volume) {
 	var volumeMounts []api.VolumeMount
 	var volumes []api.Volume
+	seen := map[string]int{}
 	if len(service.Secrets) > 0 {
 		for _, secretConfig := range service.Secrets {
 			secretConfig := reformatSecretConfigUnderscoreWithDash(secretConfig)
@@ -890,8 +891,13 @@ func (k *Kubernetes) ConfigSecretVolumes(name string, service kobject.ServiceCon
 				volSource.Secret.DefaultMode = &mode
 			}
 
+			// One secret mounted at several targets needs a distinct volume per mount.
+			volName := secretConfig.Source
+			if seen[volName]++; seen[volName] > 1 {
+				volName = fmt.Sprintf("%s-%d", volName, seen[volName])
+			}
 			vol := api.Volume{
-				Name:         secretConfig.Source,
+				Name:         volName,
 				VolumeSource: volSource,
 			}
 			volumes = append(volumes, vol)

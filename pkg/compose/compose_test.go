@@ -1618,3 +1618,44 @@ func logLineAbout(logs, want string) string {
 	}
 	return ""
 }
+
+// Regression for #16: a secret mounted at an absolute target lands on that file
+// (not its parent dir), keeps underscores in the path, and can be mounted twice.
+func TestConvertSecretAbsoluteTargets(t *testing.T) {
+	dep := firstDeployment(t, convertString(t, `
+services:
+  api:
+    image: uji:v1
+    secrets:
+      - source: kru-config
+        target: /app/__config.py
+      - source: kru-config
+        target: /app/xavier/config.py
+      - source: kru-config
+secrets:
+  kru-config:
+    external: true
+`))
+	spec := dep.Spec.Template.Spec
+	want := []struct{ mountPath, subPath string }{
+		{"/app/__config.py", "__config.py"},
+		{"/app/xavier/config.py", "config.py"},
+		{"/run/secrets/kru-config", "kru-config"},
+	}
+	mounts := spec.Containers[0].VolumeMounts
+	if len(mounts) != len(want) {
+		t.Fatalf("mounts = %+v", mounts)
+	}
+	for i, w := range want {
+		if mounts[i].MountPath != w.mountPath || mounts[i].SubPath != w.subPath {
+			t.Errorf("mount %d = %s (subPath %s), want %s (subPath %s)", i, mounts[i].MountPath, mounts[i].SubPath, w.mountPath, w.subPath)
+		}
+	}
+	names := map[string]bool{}
+	for _, v := range spec.Volumes {
+		if names[v.Name] {
+			t.Errorf("duplicate volume name %q", v.Name)
+		}
+		names[v.Name] = true
+	}
+}

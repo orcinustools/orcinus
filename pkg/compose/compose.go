@@ -178,6 +178,7 @@ func Convert(opts Options) ([]runtime.Object, error) {
 		Namespace:      opts.Namespace,
 		YAMLIndent:     2,
 		InputFiles:     loaderFiles,
+		SecretsAsFiles: true, // mount a secret at its compose target, not the target's parent dir
 	}
 	k := &kubernetes.Kubernetes{Opt: convertOpts}
 	objects, err := k.Transform(komposeObject, convertOpts)

@@ -1058,7 +1058,7 @@ func GetFileName(fileName string) string {
 func reformatSecretConfigUnderscoreWithDash(secretConfig types.ServiceSecretConfig) types.ServiceSecretConfig {
 	newSecretConfig := types.ServiceSecretConfig{
 		Source:     FormatResourceName(secretConfig.Source),
-		Target:     FormatResourceName(secretConfig.Target),
+		Target:     secretConfig.Target, // a path in the container, not a resource name
 		UID:        secretConfig.UID,
 		GID:        secretConfig.GID,
 		Mode:       secretConfig.Mode,
