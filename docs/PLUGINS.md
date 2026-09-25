@@ -36,6 +36,9 @@ create the cluster:
 orcinus cluster init --http-port 80 --https-port 443
 ```
 
+Already created the cluster without them? `orcinus cluster update --http-port 80
+--https-port 443` adds them in place, keeping everything deployed.
+
 Plugins are for everything beyond these defaults (TLS automation, nginx, metrics).
 
 ---

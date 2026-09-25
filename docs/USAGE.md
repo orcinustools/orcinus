@@ -233,6 +233,19 @@ orcinus cluster init --advertise 10.0.0.5         # reachable by remote nodes/cl
 
 On success it prints the kubeconfig path and a ready-to-paste `orcinus cluster join …`.
 
+**Forgot the ingress ports?** Add (or change) them on the running cluster —
+no need to tear it down:
+
+```bash
+orcinus cluster update --http-port 80 --https-port 443   # 0 stops publishing a port
+```
+
+Docker cannot add ports to a running container, so this recreates the node
+container on the same volumes and hostname: workloads, secrets, plugins and the
+join token stay, and the API is down for the few seconds of the restart. If the
+new container does not come up, the old one is put back. (The standalone runtime
+serves ingress on the host's own 80/443 and needs no ports.)
+
 > **Runtime provider (`--runtime`).** The default `docker` provider runs the
 > cluster in a container — no privileges beyond a container runtime, works
 > anywhere. The `standalone` provider runs the runtime **natively on the host** as

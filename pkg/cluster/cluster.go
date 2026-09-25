@@ -112,6 +112,13 @@ func Init(o InitOptions) (*InitResult, error) {
 	if exists && !running {
 		return nil, fmt.Errorf("a cluster named %q already exists but is not running; run `orcinus cluster down` first", o.Name)
 	}
+	if exists && (o.HTTPPort > 0 || o.HTTPSPort > 0) {
+		if c, err := inspectNode(o.Name); err == nil &&
+			(o.HTTPPort > 0 && c.publishedPort("80") != o.HTTPPort || o.HTTPSPort > 0 && c.publishedPort("443") != o.HTTPSPort) {
+			return nil, fmt.Errorf("cluster %q already exists with other ingress ports; change them in place with:\n"+
+				"  orcinus cluster update --http-port %d --https-port %d", o.Name, o.HTTPPort, o.HTTPSPort)
+		}
+	}
 	if !exists {
 		image := o.Image
 		if o.GPUs {
