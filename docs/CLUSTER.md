@@ -15,6 +15,7 @@ For the full command/flag reference see [`USAGE.md`](./USAGE.md).
 - [Topology 1 — Single node](#topology-1--single-node)
 - [Topology 2 — One master + workers](#topology-2--one-master--workers)
 - [Topology 3 — HA: multiple masters + workers](#topology-3--ha-multiple-masters--workers)
+- [GPU nodes](#gpu-nodes)
 - [Verifying the cluster](#verifying-the-cluster)
 - [Tearing down](#tearing-down)
 - [All on one host (for testing)](#all-on-one-host-for-testing)
@@ -243,6 +244,34 @@ Result: a 3-master control plane (etcd quorum) with as many workers as you add.
 > Alternative to embedded etcd: an **external datastore** for HA — replace
 > `--cluster-init` with `--datastore-endpoint "postgres://…"` (or etcd/MySQL) on
 > every master. See [`USAGE.md` §6](./USAGE.md#6-datastore).
+
+---
+
+## GPU nodes
+
+`--gpus` on `cluster init` / `cluster join` gives the node's pods the host's
+NVIDIA GPUs. The host needs the NVIDIA driver and the
+[NVIDIA container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html);
+the docker runtime also needs the toolkit's CDI spec:
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml   # docker runtime only
+
+orcinus cluster init --gpus
+# or: sudo orcinus-standalone cluster init --runtime standalone --gpus
+```
+
+- **docker** — the node container gets the GPUs through CDI
+  (`--device nvidia.com/gpu=all`, not `--gpus all`, which some docker versions
+  resolve to the wrong vendor). `rancher/k3s` cannot run the NVIDIA runtime, so
+  the first `--gpus` init builds `orcinus/k3s-nvidia:<k3s tag>` locally — the
+  same k3s on Ubuntu with the toolkit, a minute or two once per host.
+- **standalone** — k3s runs on the host and finds the toolkit by itself;
+  `--gpus` only checks that it is installed.
+
+Either way the cluster gets an `nvidia` RuntimeClass. Then schedule GPUs with
+the [`hami` plugin](./PLUGINS.md#gpu-sharing-hami), which also lets several pods
+share one GPU.
 
 ---
 

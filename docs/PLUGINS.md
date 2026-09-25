@@ -72,6 +72,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `dashboard` | — | Kubernetes Dashboard (web UI) |
 | `registry` | — | In-cluster image registry (`registry.orcinus-registry.svc:5000`) |
 | `grafana` | — | Grafana (point at Prometheus) |
+| `hami` | — | GPU scheduling + sharing for NVIDIA GPUs (HAMi) — see below |
 | `kubevirt` | `--emulation`, `--cdi` | KubeVirt (run VMs on the cluster) — see below |
 | `storage` | `--provider`, `--size`, `--replicas`, `--nfs-server`, `--nfs-path`, `--ceph-*` | Storage backends — see below |
 
@@ -122,6 +123,27 @@ Remove with the same provider, e.g. `orcinus plugin remove storage --provider mi
 
 For fault-tolerant setups (replicas across nodes) see
 [`HA-STORAGE.md`](./HA-STORAGE.md).
+
+### GPU sharing (HAMi)
+
+[HAMi](https://github.com/Project-HAMi/HAMi) schedules NVIDIA GPUs and lets
+several pods share one, each capped at a slice of its memory and compute. It needs
+a cluster started with [`--gpus`](./CLUSTER.md#gpu-nodes), and every GPU node
+marked for it:
+
+```bash
+orcinus node label <node> gpu=on
+orcinus plugin install hami
+```
+
+A node then advertises `nvidia.com/gpu: 10` per physical GPU — ten shareable
+slices. A service asks for a share with compose's `generic_resources` (see
+[GPUs](./COMPOSE.md#gpus)); leave out memory/cores to get a whole GPU.
+
+The plugin is the upstream Helm chart rendered once and pinned
+(`pkg/plugin/assets/hami.yaml`); its webhook adds `runtimeClassName: nvidia` to
+GPU pods, so compose files need nothing HAMi-specific. It replaces
+`nvidia-device-plugin` — orcinus refuses to install the two together.
 
 ### Virtual machines (KubeVirt)
 

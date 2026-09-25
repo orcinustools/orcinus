@@ -32,6 +32,7 @@ func newJoinCmd() *cobra.Command {
 	f.StringVar(&o.Name, "name", "", "node/container name (default: <cluster>-<role>)")
 	f.StringVar(&o.Image, "image", "", "cluster runtime image (default: from saved state)")
 	f.StringVar(&o.Runtime, "runtime", "", "runtime provider: docker (default) or standalone (native) — default: from saved state")
+	f.BoolVar(&o.GPUs, "gpus", false, "give pods this host's NVIDIA GPUs (needs the NVIDIA container toolkit; then `orcinus plugin install hami` or nvidia-device-plugin)")
 	f.StringVar(&o.Advertise, "advertise", "", "address other nodes reach this node on (cross-host joins; default: auto-detected from the route to the server)")
 	return cmd
 }
