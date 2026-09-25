@@ -41,6 +41,7 @@ func newInitCmd() *cobra.Command {
 	f.StringVar(&o.DatastoreEndpoint, "datastore-endpoint", "", "external datastore (etcd/Postgres/MySQL)")
 	f.StringVar(&o.KubeconfigPath, "kubeconfig", "", "where to write the kubeconfig (default: ~/.orcinus/kubeconfig)")
 	f.StringVar(&o.Runtime, "runtime", "docker", "cluster runtime provider: docker (container-backed) or standalone (native, built-in runtime)")
+	f.BoolVar(&o.GPUs, "gpus", false, "give pods this host's NVIDIA GPUs (needs the NVIDIA container toolkit; then `orcinus plugin install hami` or nvidia-device-plugin)")
 	f.StringArrayVar(&o.ExtraServerArgs, "server-arg", nil, "extra runtime server argument (repeatable), e.g. --server-arg --snapshotter=native")
 	return cmd
 }

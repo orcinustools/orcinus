@@ -42,6 +42,7 @@ type InitOptions struct {
 	ExtraServerArgs   []string // additional runtime server args
 	KubeconfigPath    string   // where to write the kubeconfig (default: ~/.orcinus/kubeconfig)
 	Runtime           string   // "docker" (default) or "standalone" (native, built-in runtime)
+	GPUs              bool     // expose the host's NVIDIA GPUs to pods (see gpu.go)
 }
 
 // InitResult is returned after a successful init.
@@ -64,6 +65,7 @@ type JoinOptions struct {
 	Role      string // "agent" (worker, default) or "server" (control-plane/master)
 	Runtime   string // "docker" (default) or "standalone" (native, built-in runtime)
 	Advertise string // address other nodes reach THIS node on (cross-host docker joins; default: auto-detected)
+	GPUs      bool   // expose the host's NVIDIA GPUs to pods (see gpu.go)
 }
 
 // Init provisions a single-node cluster and writes kubeconfig + state.
@@ -86,6 +88,11 @@ func Init(o InitOptions) (*InitResult, error) {
 	// The standalone runtime runs the built-in Kubernetes server natively on this
 	// host (no container runtime). It is a separate provider path.
 	if o.Runtime == "standalone" {
+		if o.GPUs {
+			if err := checkNativeGPU(); err != nil {
+				return nil, err
+			}
+		}
 		return initStandalone(o)
 	}
 	if o.Runtime != "docker" {
@@ -106,12 +113,22 @@ func Init(o InitOptions) (*InitResult, error) {
 		return nil, fmt.Errorf("a cluster named %q already exists but is not running; run `orcinus cluster down` first", o.Name)
 	}
 	if !exists {
+		image := o.Image
+		if o.GPUs {
+			var err error
+			if image, err = gpuImage(o.Image); err != nil {
+				return nil, err
+			}
+		}
 		// Docker run flags, including port publishing.
 		runFlags := []string{
 			"run", "-d", "--privileged",
 			"--name", o.Name,
 			"--label", "orcinus.cluster=" + o.Name,
 			"-p", fmt.Sprintf("%s:%d:6443", o.BindAddress, o.APIPort),
+		}
+		if o.GPUs {
+			runFlags = append(runFlags, "--device", cdiGPUs)
 		}
 		if o.HTTPPort > 0 {
 			runFlags = append(runFlags, "-p", fmt.Sprintf("0.0.0.0:%d:80", o.HTTPPort))
@@ -128,7 +145,7 @@ func Init(o InitOptions) (*InitResult, error) {
 		}
 
 		// Runtime server command.
-		serverCmd := []string{o.Image, "server", "--write-kubeconfig-mode=644"}
+		serverCmd := []string{image, "server", "--write-kubeconfig-mode=644"}
 		for _, san := range tlsSANs(o.BindAddress, o.Advertise) {
 			serverCmd = append(serverCmd, "--tls-san="+san)
 		}
@@ -167,6 +184,9 @@ func Init(o InitOptions) (*InitResult, error) {
 
 		args := append(runFlags, serverCmd...)
 		if out, err := docker(args...); err != nil {
+			if o.GPUs {
+				out += "\n" + cdiHint
+			}
 			return nil, fmt.Errorf("start cluster: %w\n%s", err, out)
 		}
 	}
@@ -272,6 +292,11 @@ func Join(o JoinOptions) error {
 
 	// Native (no container runtime) join.
 	if o.Runtime == "standalone" {
+		if o.GPUs {
+			if err := checkNativeGPU(); err != nil {
+				return err
+			}
+		}
 		return joinStandalone(o)
 	}
 	if o.Runtime != "docker" {
@@ -309,6 +334,14 @@ func Join(o JoinOptions) error {
 	if crossHost {
 		base = append(base, "-p", "0.0.0.0:8472:8472/udp", "-p", "0.0.0.0:10250:10250")
 	}
+	if o.GPUs {
+		img, err := gpuImage(o.Image)
+		if err != nil {
+			return err
+		}
+		o.Image = img
+		base = append(base, "--device", cdiGPUs)
+	}
 	var args []string
 	if o.Role == "server" {
 		// Additional control-plane node joins the existing server.
@@ -331,6 +364,9 @@ func Join(o JoinOptions) error {
 		}
 	}
 	if out, err := docker(args...); err != nil {
+		if o.GPUs {
+			out += "\n" + cdiHint
+		}
 		return fmt.Errorf("start %s node: %w\n%s", o.Role, err, out)
 	}
 	if crossHost {

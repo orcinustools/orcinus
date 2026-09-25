@@ -127,6 +127,15 @@ var Registry = map[string]Spec{
 		Manifests:   []string{"https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.16.2/deployments/static/nvidia-device-plugin.yml"},
 		Notes:       "Requires NVIDIA drivers + the NVIDIA container runtime on GPU nodes. Then request a GPU with deploy.resources.reservations.devices (capabilities: [gpu]).",
 	},
+	"hami": {
+		Name:        "hami",
+		Description: "GPU sharing — split an NVIDIA GPU across pods by memory and compute (HAMi)",
+		Version:     "v2.10.0",
+		Build:       buildHAMi,
+		Notes: "Needs the NVIDIA container toolkit on GPU nodes and a cluster started with --gpus. " +
+			"Mark each GPU node with `orcinus node label <node> gpu=on`, then request a share with " +
+			"generic_resources kinds nvidia.com/gpumem (MiB) and nvidia.com/gpucores (%). Replaces nvidia-device-plugin.",
+	},
 	"argo-rollouts": {
 		Name:        "argo-rollouts",
 		Description: "Progressive delivery — canary & blue-green (Argo Rollouts)",
@@ -194,6 +203,9 @@ func Install(ctx context.Context, name string, o Options) error {
 	spec, ok := Registry[name]
 	if !ok {
 		return fmt.Errorf("unknown plugin %q (see `orcinus plugin list`)", name)
+	}
+	if other := exclusive[name]; other != "" && Installed(other) {
+		return fmt.Errorf("%s cannot run next to %s (both manage nvidia.com/gpu); remove it first: orcinus plugin remove %s", name, other, other)
 	}
 	if name == "cert-manager" && o.Email == "" {
 		return fmt.Errorf("cert-manager needs --email <you@example.com> for the ACME account")

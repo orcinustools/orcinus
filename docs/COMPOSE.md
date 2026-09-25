@@ -230,17 +230,39 @@ services:
 
 → the container gets `resources.limits: { nvidia.com/gpu: "1" }`.
 
-**To actually schedule on GPUs the cluster must advertise them** — install the
-device plugin and have NVIDIA drivers + the NVIDIA container runtime on the GPU
-nodes:
+**To actually schedule on GPUs the cluster must advertise them** — start it with
+[`--gpus`](./CLUSTER.md#gpu-nodes) and install the
+[`hami` plugin](./PLUGINS.md#gpu-sharing-hami):
 
 ```bash
-orcinus plugin install nvidia-device-plugin
+orcinus cluster init --gpus
+orcinus node label <node> gpu=on
+orcinus plugin install hami
 ```
 
 Without a GPU node advertising `nvidia.com/gpu`, a GPU pod stays **Pending**
 (`orcinus ps <project>`). The old Swarm form also works:
 `generic_resources: [{ discrete_resource_spec: { kind: gpu, value: 1 } }]`.
+
+**Sharing a GPU.** With `hami` installed, a service can take a slice of a GPU
+instead of a whole one. Any `generic_resources` kind containing a `/` becomes a
+limit as-is, so HAMi's resources need no special syntax:
+
+```yaml
+services:
+  llm:
+    image: vllm/vllm-openai
+    deploy:
+      resources:
+        reservations:
+          generic_resources:
+            - discrete_resource_spec: { kind: gpu, value: 1 }                    # one GPU…
+            - discrete_resource_spec: { kind: nvidia.com/gpumem, value: 3000 }   # …capped at 3000 MiB
+            - discrete_resource_spec: { kind: nvidia.com/gpucores, value: 30 }   # …and 30% of its compute
+```
+
+Inside the container, `nvidia-smi` reports a 3000 MiB GPU. Several such services
+fit on one card.
 
 ## Notes
 

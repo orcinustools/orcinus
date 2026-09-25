@@ -112,3 +112,22 @@ func TestResolveStorageProviders(t *testing.T) {
 		}
 	}
 }
+
+// TestHAMiManifest: the embedded render decodes and carries the pieces the
+// plugin waits for and relies on.
+func TestHAMiManifest(t *testing.T) {
+	b, err := buildHAMi(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	for _, o := range b.Objects {
+		u := o.(*unstructured.Unstructured)
+		kinds[u.GetKind()+"/"+u.GetName()] = true
+	}
+	for _, want := range []string{"Deployment/hami-scheduler", "DaemonSet/hami-device-plugin", "MutatingWebhookConfiguration/hami-webhook"} {
+		if !kinds[want] {
+			t.Errorf("embedded HAMi manifest has no %s", want)
+		}
+	}
+}

@@ -223,6 +223,7 @@ orcinus cluster init [flags]
 | `--kubeconfig <path>` | `~/.orcinus/kubeconfig` | Where to write the kubeconfig |
 | `--runtime <docker\|standalone>` | `docker` | Runtime provider — see the note below |
 | `--server-arg <arg>` | — | Extra runtime server argument (repeatable), e.g. `--server-arg --snapshotter=native` |
+| `--gpus` | `false` | Give pods the host's NVIDIA GPUs — see [CLUSTER.md → GPU nodes](CLUSTER.md#gpu-nodes) (also on `cluster join`) |
 
 ```bash
 orcinus cluster init                              # safe default: API bound to 127.0.0.1

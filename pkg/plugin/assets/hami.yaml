@@ -1,0 +1,1242 @@
+# HAMi v2.10.0, rendered from the upstream Helm chart (orcinus plugins apply
+# plain manifests, not charts). Regenerate after bumping the version:
+#
+#   curl -fsSLO https://github.com/Project-HAMi/HAMi/releases/download/v2.10.0/hami-2.10.0.tgz
+#   helm template hami hami-2.10.0.tgz -n kube-system --kube-version v1.31.5 \
+#     --set scheduler.kubeScheduler.image.registry=registry.k8s.io \
+#     --set scheduler.kubeScheduler.image.repository=kube-scheduler \
+#     --set devicePlugin.runtimeClassName=nvidia > pkg/plugin/assets/hami.yaml
+#
+# --kube-version pins the bundled kube-scheduler to cluster.DefaultImage's k3s.
+# runtimeClassName=nvidia is the RuntimeClass k3s creates when it finds the
+# NVIDIA container runtime; HAMi's webhook adds it to every GPU pod.
+---
+# Source: hami/templates/device-plugin/monitorserviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hami-device-plugin
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: "hami-device-plugin"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: hami/templates/scheduler/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hami-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: "hami-scheduler"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: hami/templates/device-plugin/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hami-device-plugin
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: hami-device-plugin
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  config.json: |
+    {
+      "nodeconfig": [
+        {
+          "name": "your-node-name",
+          "operatingmode": "hami-core",
+          "devicememoryscaling": 1,
+          "devicesplitcount": 10,
+          "preconfigureddevicememory": 0,
+          "enablenumatopology": false,
+          "migstrategy": "none",
+          "filterdevices": {
+            "uuid": [],
+            "index": []
+          },
+          "enablegetpreferredallocation": false
+        }
+      ]
+    }
+---
+# Source: hami/templates/scheduler/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hami-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: hami-scheduler
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  
+  config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      leaderElect: true
+      resourceName: "hami-scheduler"
+      resourceNamespace: "kube-system"
+    profiles:
+    - schedulerName: hami-scheduler
+    extenders:
+    - urlPrefix: "https://127.0.0.1:443"
+      enableHTTPS: true
+      tlsConfig:
+        insecure: true
+      filterVerb: filter
+      bindVerb: bind
+      nodeCacheCapable: true
+      weight: 1
+      httpTimeout: 30s
+      managedResources:
+      - ignoredByScheduler: true
+        name: nvidia.com/gpu
+      - ignoredByScheduler: true
+        name: nvidia.com/gpumem
+      - ignoredByScheduler: true
+        name: nvidia.com/gpucores
+      - ignoredByScheduler: true
+        name: nvidia.com/gpumem-percentage
+      - ignoredByScheduler: true
+        name: nvidia.com/priority
+      - ignoredByScheduler: true
+        name: cambricon.com/vmlu
+      - ignoredByScheduler: true
+        name: hygon.com/dcunum
+      - ignoredByScheduler: true
+        name: hygon.com/dcumem
+      - ignoredByScheduler: true
+        name: hygon.com/dcucores
+      - ignoredByScheduler: true
+        name: metax-tech.com/gpu
+      - ignoredByScheduler: true
+        name: metax-tech.com/sgpu
+      - ignoredByScheduler: true
+        name: metax-tech.com/vcore
+      - ignoredByScheduler: true
+        name: metax-tech.com/vmemory
+      - ignoredByScheduler: true
+        name: mthreads.com/vgpu
+      - ignoredByScheduler: true
+        name: enflame.com/drs-gcu
+      - ignoredByScheduler: true
+        name: enflame.com/gcu-memory
+      - ignoredByScheduler: true
+        name: enflame.com/gcu-core
+      - ignoredByScheduler: true
+        name: enflame.com/gcu
+      - ignoredByScheduler: true
+        name: kunlunxin.com/xpu
+      - ignoredByScheduler: true
+        name: kunlunxin.com/vxpu
+      - ignoredByScheduler: true
+        name: kunlunxin.com/vxpu-memory
+      - ignoredByScheduler: true
+        name: aws.amazon.com/neuron
+      - ignoredByScheduler: true
+        name: aws.amazon.com/neuroncore
+      - ignoredByScheduler: true
+        name: vastaitech.com/va
+      - ignoredByScheduler: true
+        name: birentech.com/gpu
+      - ignoredByScheduler: true
+        name: amd.com/gpu
+      - ignoredByScheduler: true
+        name: amd.com/gpumem
+      - ignoredByScheduler: true
+        name: amd.com/gpucores
+---
+# Source: hami/templates/scheduler/device-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hami-scheduler-device
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: hami-scheduler
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  device-config.yaml: |-
+    nvidia:
+      resourceCountName: nvidia.com/gpu
+      resourceMemoryName: nvidia.com/gpumem
+      resourceMemoryPercentageName: nvidia.com/gpumem-percentage
+      resourceCoreName: nvidia.com/gpucores
+      resourcePriorityName: nvidia.com/priority
+      overwriteEnv: false
+      defaultMemory: 0
+      defaultCores: 0
+      defaultGPUNum: 1
+      preConfiguredDeviceMemory: 0
+      memoryFactor: 1
+      deviceSplitCount: 10
+      deviceMemoryScaling: 1
+      deviceCoreScaling: 1
+      enableNumaTopology: false
+      gpuCorePolicy: default
+      libCudaLogLevel: 1
+      runtimeClassName: "nvidia"
+      migProfileAllowlist:
+      - models: [ "A30" ]
+        profiles: [ "1g.6gb", "2g.12gb", "4g.24gb" ]
+      - models: [ "A100-SXM4-40GB", "A100-40GB-PCIe", "A100-PCIE-40GB"]
+        profiles: [ "1g.5gb", "2g.10gb", "3g.20gb", "7g.40gb" ]
+      - models: [ "A100-SXM4-80GB", "A100-80GB-PCIe", "A100-PCIE-80GB"]
+        profiles: [ "1g.10gb", "2g.20gb", "3g.40gb", "7g.79gb" ]
+      - models: [ "H100-PCIE-80GB", "H100-SXM5-80GB"]
+        profiles: [ "1g.10gb", "2g.20gb", "3g.40gb", "7g.80gb" ]
+      - models: [ "H100-PCIE-94GB", "H100-SXM5-94GB"]
+        profiles: [ "1g.12gb", "2g.24gb", "3g.47gb", "7g.94gb" ]
+      - models: [ "H20", "H100 on GH200"]
+        profiles: [ "1g.12gb", "2g.24gb", "3g.48gb", "7g.96gb" ]
+      - models: [ "H200 NVL", "H200-SXM5"]
+        profiles: [ "1g.18gb", "2g.35gb", "3g.71gb", "7g.141gb" ]
+      - models: [ "B200" ]
+        profiles: [ "1g.23gb", "2g.45gb", "3g.90gb", "7g.180gb" ]
+      - models: [ "RTX PRO 6000 Blackwell Server Edition" ]
+        profiles: [ "1g.24gb", "2g.48gb", "4g.96gb" ]
+    cambricon:
+      resourceCountName: cambricon.com/vmlu
+      resourceMemoryName: cambricon.com/mlu.smlu.vmemory
+      resourceCoreName: cambricon.com/mlu.smlu.vcore
+    hygon:
+      resourceCountName: hygon.com/dcunum
+      resourceMemoryName: hygon.com/dcumem
+      resourceCoreName: hygon.com/dcucores
+      memoryFactor: 1
+    metax:
+      resourceCountName: "metax-tech.com/gpu"
+      resourceVCountName: metax-tech.com/sgpu
+      resourceVMemoryName: metax-tech.com/vmemory
+      resourceVCoreName: metax-tech.com/vcore
+      sgpuTopologyAware: false
+    enflame:
+      resourceNameGCU: "enflame.com/gcu"
+      resourceNameDRSGCU: enflame.com/drs-gcu
+      resourceNameGCUMemory: enflame.com/gcu-memory
+      resourceNameGCUCore: enflame.com/gcu-core
+    mthreads:
+      resourceCountName: "mthreads.com/vgpu"
+      resourceMemoryName: "mthreads.com/sgpu-memory"
+      resourceCoreName: "mthreads.com/sgpu-core"
+    iluvatars:
+    - chipName: MR-V100
+      commonWord: MR-V100
+      resourceCountName: iluvatar.ai/MR-V100-vgpu
+      resourceMemoryName: iluvatar.ai/MR-V100.vMem
+      resourceCoreName: iluvatar.ai/MR-V100.vCore
+    - chipName: MR-V50
+      commonWord: MR-V50
+      resourceCountName: iluvatar.ai/MR-V50-vgpu
+      resourceMemoryName: iluvatar.ai/MR-V50.vMem
+      resourceCoreName: iluvatar.ai/MR-V50.vCore
+    - chipName: BI-V150
+      commonWord: BI-V150
+      resourceCountName: iluvatar.ai/BI-V150-vgpu
+      resourceMemoryName: iluvatar.ai/BI-V150.vMem
+      resourceCoreName: iluvatar.ai/BI-V150.vCore
+    - chipName: BI-V100
+      commonWord: BI-V100
+      resourceCountName: iluvatar.ai/BI-V100-vgpu
+      resourceMemoryName: iluvatar.ai/BI-V100.vMem
+      resourceCoreName: iluvatar.ai/BI-V100.vCore
+    kunlun:
+      resourceCountName: kunlunxin.com/xpu
+      resourceVCountName: kunlunxin.com/vxpu
+      resourceVMemoryName: kunlunxin.com/vxpu-memory
+    awsneuron:
+      resourceCountName: "aws.amazon.com/neuron"
+      resourceCoreName: "aws.amazon.com/neuroncore"
+    amd:
+      resourceCountName: "amd.com/gpu"
+      resourceCoreName: "amd.com/gpucores"
+      resourceMemoryName: "amd.com/gpumem"
+    vastai:
+      resourceCountName: vastaitech.com/va
+    biren:
+      resourceCountName: birentech.com/gpu
+    vnpus:
+      hamiVnpuCore: false
+      configs:
+      - chipName: 910A
+        commonWord: Ascend910A
+        resourceName: huawei.com/Ascend910A
+        resourceMemoryName: huawei.com/Ascend910A-memory
+        resourceCoreName: huawei.com/Ascend910A-core
+        memoryAllocatable: 32768
+        memoryCapacity: 32768
+        memoryFactor: 1
+        aiCore: 30
+        runtimeClassName: ""
+        overwriteEnv: false
+        templates:
+          - name: vir02
+            memory: 2184
+            aiCore: 2
+          - name: vir04
+            memory: 4369
+            aiCore: 4
+          - name: vir08
+            memory: 8738
+            aiCore: 8
+          - name: vir16
+            memory: 17476
+            aiCore: 16
+      - chipName: 910B2
+        commonWord: Ascend910B2
+        resourceName: huawei.com/Ascend910B2
+        resourceMemoryName: huawei.com/Ascend910B2-memory
+        resourceCoreName: huawei.com/Ascend910B2-core
+        memoryAllocatable: 65536
+        memoryCapacity: 65536
+        memoryFactor: 1
+        aiCore: 24
+        aiCPU: 6
+        runtimeClassName: ""
+        overwriteEnv: false
+        templates:
+          - name: vir03_1c_8g
+            memory: 8192
+            aiCore: 3
+            aiCPU: 1
+          - name: vir06_1c_16g
+            memory: 16384
+            aiCore: 6
+            aiCPU: 1
+          - name: vir12_3c_32g
+            memory: 32768
+            aiCore: 12
+            aiCPU: 3
+      - chipName: 910B3
+        commonWord: Ascend910B3
+        resourceName: huawei.com/Ascend910B3
+        resourceMemoryName: huawei.com/Ascend910B3-memory
+        resourceCoreName: huawei.com/Ascend910B3-core
+        memoryAllocatable: 65536
+        memoryCapacity: 65536
+        memoryFactor: 1
+        aiCore: 20
+        aiCPU: 7
+        runtimeClassName: ""
+        overwriteEnv: false
+        templates:
+          - name: vir05_1c_16g
+            memory: 16384
+            aiCore: 5
+            aiCPU: 1
+          - name: vir10_3c_32g
+            memory: 32768
+            aiCore: 10
+            aiCPU: 3
+      - chipName: 910B4-1
+        commonWord: Ascend910B4-1
+        resourceName: huawei.com/Ascend910B4-1
+        resourceMemoryName: huawei.com/Ascend910B4-1-memory
+        resourceCoreName: huawei.com/Ascend910B4-1-core
+        memoryAllocatable: 65536
+        memoryCapacity: 65536
+        memoryFactor: 1
+        aiCore: 20
+        aiCPU: 7
+        runtimeClassName: ""
+        overwriteEnv: false
+        templates:
+          - name: vir05_1c_16g
+            memory: 16384
+            aiCore: 5
+            aiCPU: 1
+          - name: vir10_3c_32g
+            memory: 32768
+            aiCore: 10
+            aiCPU: 3
+      - chipName: 910B4
+        commonWord: Ascend910B4
+        resourceName: huawei.com/Ascend910B4
+        resourceMemoryName: huawei.com/Ascend910B4-memory
+        resourceCoreName: huawei.com/Ascend910B4-core
+        memoryAllocatable: 32768
+        memoryCapacity: 32768
+        memoryFactor: 1
+        aiCore: 20
+        aiCPU: 7
+        runtimeClassName: ""
+        overwriteEnv: false
+        templates:
+          - name: vir05_1c_8g
+            memory: 8192
+            aiCore: 5
+            aiCPU: 1
+          - name: vir10_3c_16g
+            memory: 16384
+            aiCore: 10
+            aiCPU: 3
+      - chipName: 310P3
+        commonWord: Ascend310P
+        resourceName: huawei.com/Ascend310P
+        resourceMemoryName: huawei.com/Ascend310P-memory
+        resourceCoreName: huawei.com/Ascend310P-core
+        memoryAllocatable: 21527
+        memoryCapacity: 24576
+        memoryFactor: 1
+        aiCore: 8
+        aiCPU: 7
+        runtimeClassName: ""
+        overwriteEnv: false
+        templates:
+          - name: vir01
+            memory: 3072
+            aiCore: 1
+            aiCPU: 1
+          - name: vir02
+            memory: 6144
+            aiCore: 2
+            aiCPU: 2
+          - name: vir04
+            memory: 12288
+            aiCore: 4
+            aiCPU: 4
+      - chipName: Ascend910
+        commonWord: Ascend910C
+        resourceName: huawei.com/Ascend910C
+        resourceMemoryName: huawei.com/Ascend910C-memory
+        resourceCoreName: huawei.com/Ascend910C-core
+        memoryAllocatable: 65536
+        memoryCapacity: 65536
+        aiCore: 20
+        aiCPU: 7
+        runtimeClassName: ""
+        overwriteEnv: false
+        superPod: true
+        templates:
+          - name: vir05_1c_16g
+            memory: 16384
+            aiCore: 5
+            aiCPU: 1
+          - name: vir10_3c_32g
+            memory: 32768
+            aiCore: 10
+            aiCPU: 3
+---
+# Source: hami/templates/device-plugin/monitorrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name:  hami-device-plugin-monitor
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - create
+      - watch
+      - list
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - update
+      - list
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - list
+      - create
+      - update
+---
+# Source: hami/templates/scheduler/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hami-scheduler
+  labels:
+    app.kubernetes.io/component: "hami-scheduler"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "configmaps"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/binding"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "get", "list"]
+  - apiGroups: [""]
+    resources: ["resourcequotas"]
+    verbs: ["get", "list", "watch"]
+---
+# Source: hami/templates/device-plugin/monitorrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hami-device-plugin
+  labels:
+    app.kubernetes.io/component: "hami-device-plugin"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hami-device-plugin-monitor
+subjects:
+  - kind: ServiceAccount
+    name: hami-device-plugin
+    namespace: kube-system
+---
+# Source: hami/templates/scheduler/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hami-scheduler-kube
+  labels:
+    app.kubernetes.io/component: "hami-scheduler"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:kube-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: hami-scheduler
+    namespace: kube-system
+---
+# Source: hami/templates/scheduler/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hami-scheduler-volume
+  labels:
+    app.kubernetes.io/component: "hami-scheduler"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:volume-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: hami-scheduler
+    namespace: kube-system
+---
+# Source: hami/templates/scheduler/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hami-scheduler
+  labels:
+    app.kubernetes.io/component: "hami-scheduler"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hami-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: hami-scheduler
+    namespace: kube-system
+---
+# Source: hami/templates/scheduler/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hami-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: "hami-scheduler"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "list", "watch", "get", "update", "patch"]
+---
+# Source: hami/templates/scheduler/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hami-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: "hami-scheduler"
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hami-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: hami-scheduler
+    namespace: kube-system
+---
+# Source: hami/templates/device-plugin/monitorservice.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hami-device-plugin-monitor
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: hami-device-plugin
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort  # Default type is NodePort
+  ports:
+    - name: monitorport
+      port: 31992  # Default HTTP port is 31992
+      targetPort: 9394  # If type is NodePort, set nodePort
+      nodePort: 31992
+      protocol: TCP
+  selector:
+    app.kubernetes.io/component: hami-device-plugin
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+---
+# Source: hami/templates/scheduler/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hami-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: hami-scheduler
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort  # Default type is NodePort
+  ports:
+    - name: http
+      port: 443  # Default HTTP port is 443
+      targetPort: 443  # If type is NodePort, set nodePort
+      nodePort: 31998
+      protocol: TCP
+    - name: monitor
+      port: 31993  # Default monitoring port is 31993
+      targetPort: 9395  # If type is NodePort, set nodePort
+      nodePort: 31993
+      protocol: TCP
+  selector:
+    app.kubernetes.io/component: hami-scheduler
+    hami.io/scheduler-role: leader
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+---
+# Source: hami/templates/device-plugin/daemonsetnvidia.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: hami-device-plugin
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: hami-device-plugin
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: hami-device-plugin
+      app.kubernetes.io/name: hami
+      app.kubernetes.io/instance: hami
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: hami-device-plugin
+        hami.io/webhook: ignore
+        app.kubernetes.io/name: hami
+        app.kubernetes.io/instance: hami
+      annotations:
+        checksum/hami-scheduler-config: 25f59f38328307178da3b9304fdf140ede687e949004525067117a272a920da2
+        checksum/hami-scheduler-device-config: f0bee2e0e1b557aea9f321a300ba1f288944edbf533bcbef476d45f34e1cf172
+    spec:
+      runtimeClassName: nvidia
+      serviceAccountName: hami-device-plugin
+      priorityClassName: system-node-critical
+      hostPID: true
+      hostNetwork: false
+      
+      containers:
+        - name: device-plugin
+          image: docker.io/projecthami/hami:v2.10.0
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh","-c", "/k8s-vgpu/bin/vgpu-init.sh /usr/local/vgpu/"]
+          command:
+            - nvidia-device-plugin
+            - --config-file=/device-config.yaml
+            - --mig-strategy=none
+            - --disable-core-limit=false
+            - -v=4
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NVIDIA_MIG_MONITOR_DEVICES
+              value: all
+            - name: DEVICE_LIST_STRATEGY
+              value: envvar
+            - name: HOOK_PATH
+              value: /usr/local
+            - name: PASS_DEVICE_SPECS
+              value: "false"
+          securityContext:
+            allowPrivilegeEscalation: true
+            capabilities:
+              add:
+              - SYS_ADMIN
+              drop:
+              - ALL
+            privileged: true
+          resources:
+            {}
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: lib
+              mountPath: /usr/local/vgpu
+            - name: usrbin
+              mountPath: /usrbin
+            - name: deviceconfig
+              mountPath: /config
+            - name: hosttmp
+              mountPath: /tmp
+            - name: device-config
+              mountPath: /device-config.yaml
+              subPath: device-config.yaml
+            - name: cdi-root
+              mountPath: /var/run/cdi
+        - name: vgpu-monitor
+          image: docker.io/projecthami/hami:v2.10.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - "vGPUmonitor"
+            - -v=4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+              - SYS_ADMIN
+              drop:
+              - ALL
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_MIG_MONITOR_DEVICES
+              value: "all"
+            - name: HOOK_PATH
+              value: "/usr/local/vgpu"
+            - name: HAMI_RESYNC_INTERVAL
+              value: "5m"
+          ports:
+            - name: metrics
+              containerPort: 9394
+              protocol: TCP
+          resources:
+            {}
+          volumeMounts:
+            - name: ctrs
+              mountPath: /usr/local/vgpu/containers
+            - name: dockers
+              mountPath: /run/docker
+            - name: containerds
+              mountPath: /run/containerd
+            - name: sysinfo
+              mountPath: /sysinfo
+            - name: hostvar
+              mountPath: /hostvar
+            - name: hosttmp
+              mountPath: /tmp
+      volumes:
+        - name: ctrs
+          hostPath:
+            path: /usr/local/vgpu/containers
+        - name: hosttmp
+          hostPath:
+            path: /tmp
+        - name: dockers
+          hostPath:
+            path: /run/docker
+        - name: containerds
+          hostPath:
+            path: /run/containerd
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+        - name: lib
+          hostPath:
+            path: /usr/local/vgpu
+        - name: cdi-root
+          hostPath:
+            path: /var/run/cdi
+            type: DirectoryOrCreate
+        - name: usrbin
+          hostPath:
+            path: /usr/bin
+        - name: sysinfo
+          hostPath:
+            path: /sys
+        - name: hostvar
+          hostPath:
+            path: /var
+        - name: deviceconfig
+          configMap:
+            name: hami-device-plugin
+        - name: device-config
+          configMap:
+            name: hami-scheduler-device
+      nodeSelector: 
+        gpu: "on"
+---
+# Source: hami/templates/scheduler/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hami-scheduler
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/component: hami-scheduler
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: hami-scheduler
+      app.kubernetes.io/name: hami
+      app.kubernetes.io/instance: hami
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: hami-scheduler
+        app.kubernetes.io/name: hami
+        app.kubernetes.io/instance: hami
+        hami.io/webhook: ignore
+      annotations:
+        checksum/hami-scheduler-config: 25f59f38328307178da3b9304fdf140ede687e949004525067117a272a920da2
+        checksum/hami-scheduler-device-config: f0bee2e0e1b557aea9f321a300ba1f288944edbf533bcbef476d45f34e1cf172
+    spec:
+      serviceAccountName: hami-scheduler
+      priorityClassName: system-node-critical
+      
+      containers:
+        - name: kube-scheduler
+          image: registry.k8s.io/kube-scheduler:v1.31.5
+          imagePullPolicy: IfNotPresent
+          command:
+            - kube-scheduler
+            - --config=/config/config.yaml
+            - -v=4
+          resources:
+            {}
+          volumeMounts:
+            - name: scheduler-config
+              mountPath: /config
+        - name: vgpu-scheduler-extender
+          image: docker.io/projecthami/hami:v2.10.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HAMI_NODELOCK_EXPIRE
+              value: "5m"
+          command:
+            - scheduler
+            - --http_bind=0.0.0.0:443
+            - --cert_file=/tls/tls.crt
+            - --key_file=/tls/tls.key
+            - --scheduler-name=hami-scheduler
+            - --metrics-bind-address=:9395
+            - --node-scheduler-policy=binpack
+            - --gpu-scheduler-policy=spread
+            - --force-overwrite-default-scheduler=true
+            - --device-config-file=/device-config.yaml
+            - --leader-elect=true
+            - --leader-elect-resource-name=hami-scheduler
+            - --leader-elect-resource-namespace=kube-system
+            - --debug
+            - -v=4
+          ports:
+            - name: https
+              containerPort: 443
+              protocol: TCP
+            - name: metrics
+              containerPort: 9395
+              protocol: TCP
+          resources:
+            {}
+          volumeMounts:
+            - name: device-config
+              mountPath: /device-config.yaml
+              subPath: device-config.yaml
+            - name: tls-config
+              mountPath: /tls
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/component
+                  operator: In
+                  values:
+                  - hami-scheduler
+              topologyKey: "kubernetes.io/hostname"
+      volumes:
+        - name: tls-config
+          secret:
+            secretName: hami-scheduler-tls
+        - name: scheduler-config
+          configMap:
+            name: hami-scheduler
+        - name: device-config
+          configMap:
+            name: hami-scheduler-device
+---
+# Source: hami/templates/scheduler/webhook.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: hami-webhook
+webhooks:
+  - admissionReviewVersions:
+    - v1beta1
+    clientConfig:
+      service:
+        name: hami-scheduler
+        namespace: kube-system
+        path: /webhook
+        port: 443
+    failurePolicy: Ignore
+    matchPolicy: Equivalent
+    name: vgpu.hami.io
+    namespaceSelector:
+      matchExpressions:
+      - key: hami.io/webhook
+        operator: NotIn
+        values:
+        - ignore
+    objectSelector:
+      matchExpressions:
+      - key: hami.io/webhook
+        operator: NotIn
+        values:
+        - ignore
+    reinvocationPolicy: Never
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pods
+        scope: '*'
+    sideEffects: None
+    timeoutSeconds: 10
+---
+# Source: hami/templates/scheduler/job-patch/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hami-admission
+  namespace: kube-system
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade,post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: admission-webhook
+---
+# Source: hami/templates/scheduler/job-patch/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hami-admission
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade,post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: admission-webhook
+rules:
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      #- validatingwebhookconfigurations
+      - mutatingwebhookconfigurations
+    verbs:
+      - get
+      - update
+---
+# Source: hami/templates/scheduler/job-patch/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name:  hami-admission
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade,post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: admission-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hami-admission
+subjects:
+  - kind: ServiceAccount
+    name: hami-admission
+    namespace: kube-system
+---
+# Source: hami/templates/scheduler/job-patch/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name:  hami-admission
+  namespace: kube-system
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade,post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: admission-webhook
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - create
+---
+# Source: hami/templates/scheduler/job-patch/rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hami-admission
+  namespace: kube-system
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade,post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: admission-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hami-admission
+subjects:
+  - kind: ServiceAccount
+    name: hami-admission
+    namespace: kube-system
+---
+# Source: hami/templates/scheduler/job-patch/job-createSecret.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hami-admission-create
+  namespace: kube-system
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: admission-webhook
+spec:
+  template:
+    metadata:
+      name: hami-admission-create
+      labels:
+        helm.sh/chart: hami-2.10.0
+        app.kubernetes.io/name: hami
+        app.kubernetes.io/instance: hami
+        app.kubernetes.io/version: "2.10.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: admission-webhook
+        hami.io/webhook: ignore
+    spec:
+      
+      containers:
+        - name: create
+          image: docker.io/liangjw/kube-webhook-certgen:v1.1.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - create
+            - --cert-name=tls.crt
+            - --key-name=tls.key
+            - --host=hami-scheduler.kube-system.svc,127.0.0.1
+            - --namespace=kube-system
+            - --secret-name=hami-scheduler-tls
+      restartPolicy: OnFailure
+      serviceAccountName: hami-admission
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2000
+---
+# Source: hami/templates/scheduler/job-patch/job-patchWebhook.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hami-admission-patch
+  namespace: kube-system
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: hami-2.10.0
+    app.kubernetes.io/name: hami
+    app.kubernetes.io/instance: hami
+    app.kubernetes.io/version: "2.10.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: admission-webhook
+spec:
+  template:
+    metadata:
+      name: hami-admission-patch
+      labels:
+        helm.sh/chart: hami-2.10.0
+        app.kubernetes.io/name: hami
+        app.kubernetes.io/instance: hami
+        app.kubernetes.io/version: "2.10.0"
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: admission-webhook
+        hami.io/webhook: ignore
+    spec:
+      
+      containers:
+        - name: patch
+          image: docker.io/liangjw/kube-webhook-certgen:v1.1.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - patch
+            - --webhook-name=hami-webhook
+            - --namespace=kube-system
+            - --patch-validating=false
+            - --secret-name=hami-scheduler-tls
+      restartPolicy: OnFailure
+      serviceAccountName: hami-admission
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2000
