@@ -273,6 +273,24 @@ Either way the cluster gets an `nvidia` RuntimeClass. Then schedule GPUs with
 the [`hami` plugin](./PLUGINS.md#gpu-sharing-hami), which also lets several pods
 share one GPU.
 
+**After upgrading the host's NVIDIA driver** (docker runtime), regenerate the CDI
+spec. It lists the driver's files by version, so a stale one makes the node
+container fail to start:
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+```
+
+**Isolation.** `--gpus` adds no host access the node did not already have — the
+node container is privileged either way. HAMi's memory/compute caps are enforced
+inside the container, not by the GPU: they keep cooperating workloads in their
+share, but they are not a security boundary between tenants who do not trust
+each other. The same goes for anyone who can create pods, who can also ask for
+the `nvidia` RuntimeClass directly and bypass HAMi.
+
+The GPU node image installs the NVIDIA toolkit current at build time, so hosts
+built at different times may run different toolkit versions.
+
 ---
 
 ## Verifying the cluster
