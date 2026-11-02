@@ -22,7 +22,7 @@ import (
 )
 
 // DefaultImage is the runtime image used for the container-based cluster.
-const DefaultImage = "rancher/k3s:v1.31.5-k3s1"
+const DefaultImage = "rancher/k3s:v1.36.5-k3s1"
 
 // DefaultName is the default server container name.
 const DefaultName = "orcinus"

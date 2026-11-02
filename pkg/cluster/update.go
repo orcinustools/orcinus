@@ -150,50 +150,16 @@ func Update(o UpdateOptions) (httpPort, httpsPort int, err error) {
 		return httpPort, httpsPort, nil // already so
 	}
 
-	tmp, err := os.MkdirTemp("", "orcinus-update")
-	if err != nil {
+	if err := recreate(o.Name, c, c.createArgs(o.Name, httpPort, httpsPort), func() error {
+		// waitReady passes once the API answers (the node's Ready status may still
+		// be the old one) — enough to catch a server that will not start.
+		return waitReady(o.Name, 180*time.Second)
+	}); err != nil {
 		return 0, 0, err
 	}
-	defer os.RemoveAll(tmp)
-	if out, err := docker("cp", o.Name+":/etc/rancher", tmp); err != nil {
-		return 0, 0, fmt.Errorf("save node identity: %w\n%s", err, out)
-	}
-
-	old := o.Name + "-old"
-	restore := func(cause error) error {
-		_, _ = docker("rm", "-f", o.Name)
-		_, _ = docker("rename", old, o.Name)
-		_, _ = docker("start", o.Name)
-		return fmt.Errorf("%w\n(the previous container was restored)", cause)
-	}
-	if out, err := docker("stop", o.Name); err != nil {
-		return 0, 0, fmt.Errorf("stop cluster: %w\n%s", err, out)
-	}
-	if out, err := docker("rename", o.Name, old); err != nil {
-		_, _ = docker("start", o.Name)
-		return 0, 0, fmt.Errorf("rename cluster container: %w\n%s", err, out)
-	}
-	if out, err := docker(c.createArgs(o.Name, httpPort, httpsPort)...); err != nil {
-		return 0, 0, restore(fmt.Errorf("create cluster container: %w\n%s", err, out))
-	}
-	if out, err := docker("cp", filepath.Join(tmp, "rancher"), o.Name+":/etc/"); err != nil {
-		return 0, 0, restore(fmt.Errorf("restore node identity: %w\n%s", err, out))
-	}
-	if out, err := docker("start", o.Name); err != nil {
-		return 0, 0, restore(fmt.Errorf("start cluster: %w\n%s", err, out))
-	}
-	// waitReady passes once the API answers (the node's Ready status may still be
-	// the old one) — enough to catch a server that will not start.
-	if err := waitReady(o.Name, 180*time.Second); err != nil {
-		return 0, 0, restore(err)
-	}
-	_, _ = docker("rm", old) // no -v: the volumes now belong to the new container
 
 	advertised := false
 	for _, a := range c.Config.Cmd {
-		if a == "--flannel-external-ip" {
-			applyVXLANChecksumFix(o.Name)
-		}
 		advertised = advertised || strings.HasPrefix(a, "--node-external-ip=")
 	}
 	// Without --advertise, joins go to the container's bridge IP, which the new
@@ -205,4 +171,53 @@ func Update(o UpdateOptions) (httpPort, httpsPort int, err error) {
 		}
 	}
 	return httpPort, httpsPort, nil
+}
+
+// recreate replaces a node container with one made from args — same volumes and
+// hostname, so the same node — copying /etc/rancher (the node password) over.
+// If ready fails the old container is put back.
+func recreate(name string, c *nodeContainer, args []string, ready func() error) error {
+	tmp, err := os.MkdirTemp("", "orcinus-update")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	if out, err := docker("cp", name+":/etc/rancher", tmp); err != nil {
+		return fmt.Errorf("save node identity: %w\n%s", err, out)
+	}
+
+	old := name + "-old"
+	restore := func(cause error) error {
+		_, _ = docker("rm", "-f", name)
+		_, _ = docker("rename", old, name)
+		_, _ = docker("start", name)
+		return fmt.Errorf("%w\n(the previous container was restored)", cause)
+	}
+	if out, err := docker("stop", name); err != nil {
+		return fmt.Errorf("stop node: %w\n%s", err, out)
+	}
+	if out, err := docker("rename", name, old); err != nil {
+		_, _ = docker("start", name)
+		return fmt.Errorf("rename node container: %w\n%s", err, out)
+	}
+	if out, err := docker(args...); err != nil {
+		return restore(fmt.Errorf("create node container: %w\n%s", err, out))
+	}
+	if out, err := docker("cp", filepath.Join(tmp, "rancher"), name+":/etc/"); err != nil {
+		return restore(fmt.Errorf("restore node identity: %w\n%s", err, out))
+	}
+	if out, err := docker("start", name); err != nil {
+		return restore(fmt.Errorf("start node: %w\n%s", err, out))
+	}
+	if err := ready(); err != nil {
+		return restore(err)
+	}
+	_, _ = docker("rm", old) // no -v: the volumes now belong to the new container
+	for _, a := range c.Config.Cmd {
+		if a == "--flannel-external-ip" || strings.HasPrefix(a, "--node-external-ip=") {
+			applyVXLANChecksumFix(name)
+			break
+		}
+	}
+	return nil
 }

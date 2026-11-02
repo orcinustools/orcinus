@@ -17,6 +17,7 @@ For the full command/flag reference see [`USAGE.md`](./USAGE.md).
 - [Topology 3 — HA: multiple masters + workers](#topology-3--ha-multiple-masters--workers)
 - [GPU nodes](#gpu-nodes)
 - [Verifying the cluster](#verifying-the-cluster)
+- [Upgrading Kubernetes](#upgrading-kubernetes)
 - [Tearing down](#tearing-down)
 - [All on one host (for testing)](#all-on-one-host-for-testing)
 - [Notes & gotchas](#notes--gotchas)
@@ -302,6 +303,39 @@ orcinus ps <project>            # a project's pods and which node they're on
 ```
 
 `status` shows every node and its role; masters carry the `control-plane` role.
+
+---
+
+## Upgrading Kubernetes
+
+Each orcinus release ships one Kubernetes version (`orcinus cluster update --help`
+names it). New clusters get it; existing clusters keep the version they were
+created with until you upgrade them, which you should: Kubernetes minors get
+security fixes for about 14 months.
+
+```bash
+# 1. install the new orcinus (or orcinus-standalone) on every host
+# 2. on the server host:
+orcinus cluster update --upgrade
+# 3. on each other host that joined (workers):
+orcinus cluster update --upgrade --name <node name>
+```
+
+A control plane cannot skip minor versions, so `--upgrade` walks the server
+through each one in turn (1.31 → 1.32 → … → 1.36), waiting for the node to come
+up Ready on each before taking the next — a few minutes in all. Pods keep their
+data; the API is down while each step restarts. Workers jump straight to the
+target. With the docker runtime, the nodes on the server's own host follow
+automatically, and a failed step puts the previous container back; the
+standalone runtime downloads the intermediate releases from upstream (checksums
+verified) and restarts on the previous one if a step fails.
+
+- Single-server clusters only: an HA control plane must move every server one
+  minor at a time, together, which `--upgrade` refuses to do.
+- Reinstall version-pinned plugins afterwards, e.g. `orcinus plugin install hami`
+  (its scheduler matches the cluster version). GPU pods recreated while the
+  HAMi webhook was down skip it and stay `Pending`; restart those services once
+  HAMi is back (`orcinus restart <service>`).
 
 ---
 

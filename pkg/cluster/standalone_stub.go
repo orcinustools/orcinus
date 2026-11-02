@@ -29,3 +29,5 @@ func standaloneNodes(kubeconfig string) string { return "" }
 
 // StandaloneKubectl is unavailable in the default (non-standalone) build.
 func StandaloneKubectl() (bin string, ok bool) { return "", false }
+
+func upgradeStandalone(name string) (string, error) { return "", runtime.ErrNotStandalone }

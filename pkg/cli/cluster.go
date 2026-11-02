@@ -55,15 +55,21 @@ func newNetfixCmd() *cobra.Command {
 func newClusterUpdateCmd() *cobra.Command {
 	var name string
 	var httpPort, httpsPort int
+	var upgrade bool
 	cmd := &cobra.Command{
 		Use:   "update",
-		Short: "Change a running cluster's ingress ports (--http-port/--https-port)",
-		Long: "Publish (or stop publishing) the ingress ports of an existing cluster.\n\n" +
+		Short: "Change a running cluster's ingress ports, or upgrade its Kubernetes version",
+		Long: "Publish (or stop publishing) the ingress ports of an existing cluster, and/or\n" +
+			"upgrade it to the Kubernetes version this orcinus release ships (--upgrade).\n\n" +
+			"--upgrade steps the control plane one minor version at a time (Kubernetes\n" +
+			"cannot skip minors), waiting for the node to come up Ready on each; workers\n" +
+			"follow. Run it on the server host first, then on each host that joined.\n\n" +
 			"Docker cannot add ports to a running container, so the node container is\n" +
 			"recreated on the same volumes and hostname: workloads, secrets and the join\n" +
 			"token stay, and the API is down for the few seconds of the restart. If the\n" +
 			"new container does not come up, the old one is put back.",
-		Example: "  orcinus cluster update --http-port 80 --https-port 443\n  orcinus cluster update --https-port 0   # stop publishing 443",
+		Example: "  orcinus cluster update --http-port 80 --https-port 443\n  orcinus cluster update --https-port 0   # stop publishing 443\n" +
+			"  orcinus cluster update --upgrade",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			o := cluster.UpdateOptions{Name: name}
 			if cmd.Flags().Changed("http-port") {
@@ -73,7 +79,15 @@ func newClusterUpdateCmd() *cobra.Command {
 				o.HTTPSPort = &httpsPort
 			}
 			if o.HTTPPort == nil && o.HTTPSPort == nil {
-				return fmt.Errorf("nothing to change: pass --http-port and/or --https-port")
+				if !upgrade {
+					return fmt.Errorf("nothing to change: pass --http-port/--https-port and/or --upgrade")
+				}
+				v, err := cluster.Upgrade(name)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "cluster on %s\n", v)
+				return nil
 			}
 			h, s, err := cluster.Update(o)
 			if err != nil {
@@ -86,6 +100,13 @@ func newClusterUpdateCmd() *cobra.Command {
 				return fmt.Sprint(p)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "ingress: http %s, https %s\n", show(h), show(s))
+			if upgrade {
+				v, err := cluster.Upgrade(name)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "cluster on %s\n", v)
+			}
 			return nil
 		},
 	}
@@ -93,5 +114,6 @@ func newClusterUpdateCmd() *cobra.Command {
 	f.StringVar(&name, "name", "", "cluster name (default: from saved state)")
 	f.IntVar(&httpPort, "http-port", 0, "publish ingress HTTP on this host port (0 = stop publishing)")
 	f.IntVar(&httpsPort, "https-port", 0, "publish ingress HTTPS on this host port (0 = stop publishing)")
+	f.BoolVar(&upgrade, "upgrade", false, "upgrade to Kubernetes "+cluster.TargetVersion()+", one minor version at a time")
 	return cmd
 }

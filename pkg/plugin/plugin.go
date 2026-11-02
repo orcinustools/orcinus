@@ -103,8 +103,10 @@ var Registry = map[string]Spec{
 	"ingress-nginx": {
 		Name:        "ingress-nginx",
 		Description: "NGINX ingress controller (ingress class: nginx)",
-		Version:     "controller-v1.11.3",
-		Manifests:   []string{"https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/cloud/deploy.yaml"},
+		Version:     "controller-v1.15.1",
+		Manifests:   []string{"https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/cloud/deploy.yaml"},
+		Notes: "ingress-nginx is retired upstream: this is its last release and it gets no further security fixes. " +
+			"Prefer the built-in Traefik ingress (class: traefik).",
 	},
 	"kubevirt": {
 		Name:        "kubevirt",

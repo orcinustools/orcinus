@@ -19,14 +19,14 @@ import (
 //
 //	ORCINUS_E2E_LIVE       set to enable the test
 //	ORCINUS_E2E_DOCKER     docker command (default "docker"; e.g. "sudo docker")
-//	ORCINUS_E2E_K3S_IMAGE  cluster image (default rancher/k3s:v1.31.5-k3s1)
+//	ORCINUS_E2E_K3S_IMAGE  cluster image (default rancher/k3s:v1.36.5-k3s1)
 func TestLiveSingleNode(t *testing.T) {
 	if os.Getenv("ORCINUS_E2E_LIVE") == "" {
 		t.Skip("set ORCINUS_E2E_LIVE=1 to run the live single-node e2e")
 	}
 
 	docker := strings.Fields(envOr("ORCINUS_E2E_DOCKER", "docker"))
-	image := envOr("ORCINUS_E2E_K3S_IMAGE", "rancher/k3s:v1.31.5-k3s1")
+	image := envOr("ORCINUS_E2E_K3S_IMAGE", "rancher/k3s:v1.36.5-k3s1")
 	const name = "orcinus-e2e-node"
 	const project = "e2e"
 

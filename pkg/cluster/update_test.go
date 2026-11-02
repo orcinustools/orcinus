@@ -40,3 +40,27 @@ func TestNodeCreateArgs(t *testing.T) {
 		t.Errorf("port 0 still published: %s", a)
 	}
 }
+
+func TestUpgradeSteps(t *testing.T) {
+	if got := "rancher/k3s:" + dockerTag(TargetVersion()); got != DefaultImage {
+		t.Errorf("upgrade target %s != DefaultImage %s", got, DefaultImage)
+	}
+	for cur, want := range map[string]string{
+		"v1.31.5+k3s1": "v1.32.13+k3s1 v1.33.13+k3s2 v1.34.12+k3s1 v1.35.9+k3s1 v1.36.5+k3s1",
+		"v1.35.1+k3s1": "v1.35.9+k3s1 v1.36.5+k3s1",
+		"v1.36.5+k3s1": "",
+		"v1.36.9+k3s1": "", // newer patch: no downgrade
+		"v1.37.1+k3s1": "",
+	} {
+		steps, err := upgradeSteps(cur)
+		if err != nil || strings.Join(steps, " ") != want {
+			t.Errorf("upgradeSteps(%s) = %v, %v; want %q", cur, steps, err, want)
+		}
+	}
+	if _, err := upgradeSteps("v1.29.0+k3s1"); err == nil {
+		t.Error("1.29 should be refused (too far behind)")
+	}
+	if fromDockerTag("v1.33.13-k3s2") != "v1.33.13+k3s2" {
+		t.Error("fromDockerTag")
+	}
+}
