@@ -246,6 +246,10 @@ join token stay, and the API is down for the few seconds of the restart. If the
 new container does not come up, the old one is put back. (The standalone runtime
 serves ingress on the host's own 80/443 and needs no ports.)
 
+**Upgrading Kubernetes.** `orcinus cluster update --upgrade` moves an existing
+cluster to the Kubernetes version this orcinus release ships, one minor at a
+time — see [CLUSTER.md](./CLUSTER.md#upgrading-kubernetes).
+
 > **Runtime provider (`--runtime`).** The default `docker` provider runs the
 > cluster in a container — no privileges beyond a container runtime, works
 > anywhere. The `standalone` provider runs the runtime **natively on the host** as

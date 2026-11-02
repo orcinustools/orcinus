@@ -6,7 +6,7 @@ before:
     - go mod tidy
     # Fetch the runtime asset embedded into the standalone binary (linux/amd64).
     # Keep the pin in sync with the Makefile's RUNTIME_VERSION.
-    - bash -c 'test -f pkg/runtime/assets/k3s || (mkdir -p pkg/runtime/assets && curl -fsSL -o pkg/runtime/assets/k3s https://github.com/k3s-io/k3s/releases/download/v1.31.5+k3s1/k3s && chmod +x pkg/runtime/assets/k3s)'
+    - bash -c 'test -f pkg/runtime/assets/k3s || (mkdir -p pkg/runtime/assets && curl -fsSL -o pkg/runtime/assets/k3s https://github.com/k3s-io/k3s/releases/download/v1.36.5+k3s1/k3s && chmod +x pkg/runtime/assets/k3s)'
 
 builds:
   # Default: lean, cross-platform binary (container runtime provider).

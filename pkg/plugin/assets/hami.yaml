@@ -2,7 +2,7 @@
 # plain manifests, not charts). Regenerate after bumping the version:
 #
 #   curl -fsSLO https://github.com/Project-HAMi/HAMi/releases/download/v2.10.0/hami-2.10.0.tgz
-#   helm template hami hami-2.10.0.tgz -n kube-system --kube-version v1.31.5 \
+#   helm template hami hami-2.10.0.tgz -n kube-system --kube-version v1.36.5 \
 #     --set scheduler.kubeScheduler.image.registry=registry.k8s.io \
 #     --set scheduler.kubeScheduler.image.repository=kube-scheduler \
 #     --set devicePlugin.runtimeClassName=nvidia > pkg/plugin/assets/hami.yaml
@@ -901,7 +901,7 @@ spec:
       
       containers:
         - name: kube-scheduler
-          image: registry.k8s.io/kube-scheduler:v1.31.5
+          image: registry.k8s.io/kube-scheduler:v1.36.5
           imagePullPolicy: IfNotPresent
           command:
             - kube-scheduler

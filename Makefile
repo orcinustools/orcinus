@@ -44,7 +44,7 @@ e2e-exec:
 
 # The standalone runtime asset (downloaded once into pkg/runtime/assets, gitignored).
 # The standalone orcinus binary embeds it via go:embed + the `standalone` build tag.
-RUNTIME_VERSION ?= v1.31.5+k3s1
+RUNTIME_VERSION ?= v1.36.5+k3s1
 runtime-asset:
 	@test -f pkg/runtime/assets/k3s || ( mkdir -p pkg/runtime/assets && \
 	  curl -fsSL -o pkg/runtime/assets/k3s \

@@ -75,6 +75,7 @@ func initStandalone(o InitOptions) (*InitResult, error) {
 		args = append(args, "--datastore-endpoint="+o.DatastoreEndpoint)
 	}
 	args = append(args, o.ExtraServerArgs...)
+	saveArgs(dir, args)
 
 	logf, err := os.Create(logPath)
 	if err != nil {
@@ -153,6 +154,7 @@ func joinStandalone(o JoinOptions) error {
 	}
 	args := []string{role, "--server", o.ServerURL, "--token", o.Token,
 		"--data-dir", dataDir, "--node-name", o.Name}
+	saveArgs(dir, args)
 
 	logf, err := os.Create(logPath)
 	if err != nil {
@@ -190,14 +192,7 @@ func downStandalone(name string) (int, error) {
 	dir := standaloneDir(name)
 	removed := 0
 	if pid, ok := readPID(filepath.Join(dir, "pid")); ok {
-		// Signal the whole process group; escalate to KILL if it lingers.
-		_ = syscall.Kill(-pid, syscall.SIGTERM)
-		for i := 0; i < 20 && processAlive(pid); i++ {
-			time.Sleep(500 * time.Millisecond)
-		}
-		if processAlive(pid) {
-			_ = syscall.Kill(-pid, syscall.SIGKILL)
-		}
+		stopGroup(pid)
 		removed = 1
 	}
 	// containerd shims / pause processes are spawned in their own process groups,
@@ -215,6 +210,17 @@ func downStandalone(name string) (int, error) {
 	_ = os.Remove(KubeconfigPath())
 	_ = os.Remove(statePath())
 	return removed, nil
+}
+
+// stopGroup signals a server's whole process group; KILL if it lingers.
+func stopGroup(pid int) {
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	for i := 0; i < 20 && processAlive(pid); i++ {
+		time.Sleep(500 * time.Millisecond)
+	}
+	if processAlive(pid) {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	}
 }
 
 func standaloneRunning(name string) bool {
@@ -286,7 +292,18 @@ func readPID(path string) (int, bool) {
 	return pid, true
 }
 
-func processAlive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+// processAlive is false for a zombie too: a server this process started and
+// released stays one until we exit.
+func processAlive(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if i := strings.LastIndexByte(string(b), ')'); err == nil && i+2 < len(b) {
+		return b[i+2] != 'Z'
+	}
+	return true
+}
 
 // killProcessesReferencing SIGKILLs every process whose command line mentions
 // dir — the runtime's containerd shims and pause containers, which outlive the

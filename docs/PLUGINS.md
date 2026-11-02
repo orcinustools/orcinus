@@ -68,7 +68,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | Plugin | Options | Installs |
 |---|---|---|
 | `cert-manager` | `--email` (required), `--staging`, `--dns cloudflare --dns-token <t>` | cert-manager + a `letsencrypt` `ClusterIssuer` (HTTP-01); with `--dns`, also a `letsencrypt-dns` issuer (DNS-01, for wildcards) |
-| `ingress-nginx` | — | NGINX ingress controller (class `nginx`) |
+| `ingress-nginx` | — | NGINX ingress controller (class `nginx`). **Retired upstream**: this is its last release, with no further security fixes — prefer the built-in Traefik |
 | `metrics-server` | — | metrics-server (`kubectl top`, HPA) |
 | `monitoring` | — | Prometheus Operator (CRDs + operator) |
 | `argo-rollouts` | — | Argo Rollouts controller for canary/blue-green (`x-orcinus-rollout`) |
