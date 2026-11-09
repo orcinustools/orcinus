@@ -1,0 +1,50 @@
+# orcinus base image: AlmaLinux userland reduced to what a compiled program
+# needs at run time — glibc, CA certificates, time zones — and nothing that
+# runs: no shell, no coreutils, no package manager, no interpreter.
+# It runs as UID 65532 (nonroot) by default.
+#
+#   docker build -t orcinus/base:9 -f images/base/Containerfile images/base
+#   docker build -t orcinus/base:10 -f images/base/Containerfile --build-arg ALMA_VERSION=10 images/base  # needs an x86-64-v3 CPU
+#
+# The rpm database is kept, so scanners (trivy, grype) still see every package.
+
+ARG ALMA_VERSION=9
+
+FROM docker.io/library/almalinux:${ALMA_VERSION} AS build
+ARG ALMA_VERSION
+# The repos and their signing keys come from the builder; packages are
+# GPG-checked as usual.
+RUN mkdir -p /rootfs/etc/pki && cp -a /etc/pki/rpm-gpg /rootfs/etc/pki/ && \
+    dnf -y --installroot=/rootfs --releasever="${ALMA_VERSION}" \
+        --setopt=reposdir=/etc/yum.repos.d \
+        --setopt=install_weak_deps=0 --setopt=tsflags=nodocs \
+        install glibc-minimal-langpack libgcc ca-certificates tzdata && \
+    dnf -y --installroot=/rootfs clean all
+# Pulled in only for install scriptlets: drop them (shell and tools included),
+# keeping the rpm database truthful. Then every remaining program goes too
+# (glibc's and tzdata's admin tools): only libraries and data are left.
+RUN for p in bash coreutils coreutils-common findutils grep sed gmp libsigsegv \
+             libacl libattr libcap libselinux libsepol pcre pcre2 pcre2-syntax \
+             ncurses-base ncurses-libs p11-kit p11-kit-trust libtasn1 libffi alternatives \
+             openssl-libs openssl-fips-provider crypto-policies zlib almalinux-repos; do \
+        rpm --root /rootfs -q "$p" >/dev/null 2>&1 && echo "$p"; \
+    done | xargs -r rpm --root /rootfs -e --nodeps --noscripts && \
+    rm -rf /rootfs/usr/bin/* /rootfs/usr/sbin/* /rootfs/usr/libexec/getconf /rootfs/var/lib/dnf \
+           /rootfs/usr/share/pki/ca-trust-source \
+           /rootfs/etc/pki/rpm-gpg /rootfs/var/cache/* /rootfs/var/log/* /rootfs/usr/share/doc \
+           /rootfs/usr/share/man /rootfs/usr/share/info /rootfs/usr/lib/sysimage/rpm/__db* \
+           /rootfs/var/lib/rpm/__db* && \
+    find /rootfs -xdev -perm /6000 -type f -exec chmod ug-s {} + && \
+    echo 'nonroot:x:65532:65532:nonroot:/home/nonroot:/sbin/nologin' >> /rootfs/etc/passwd && \
+    echo 'nonroot:x:65532:' >> /rootfs/etc/group && \
+    install -d -m 0700 -o 65532 -g 65532 /rootfs/home/nonroot && \
+    chmod 1777 /rootfs/tmp
+
+FROM scratch
+ARG ALMA_VERSION
+COPY --from=build /rootfs /
+USER 65532:65532
+WORKDIR /home/nonroot
+LABEL org.opencontainers.image.title="orcinus/base" \
+      org.opencontainers.image.description="AlmaLinux ${ALMA_VERSION} minimal runtime base: glibc, CA certificates, tzdata; no shell or package manager; non-root" \
+      org.opencontainers.image.source="https://github.com/orcinustools/orcinus"

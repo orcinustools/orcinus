@@ -9,7 +9,7 @@ LDFLAGS := -X $(PKG)/pkg/version.Version=$(VERSION) -X $(PKG)/pkg/version.GitCom
 
 GORELEASER ?= goreleaser
 
-.PHONY: all build test e2e e2e-live e2e-tls e2e-standalone orcinus-standalone runtime-asset tidy lint clean dist snapshot release-check
+.PHONY: all build test e2e e2e-live e2e-tls e2e-standalone orcinus-standalone runtime-asset tidy lint clean dist snapshot release-check image-base image-base-test
 
 all: build
 
@@ -62,6 +62,17 @@ orcinus-standalone: runtime-asset
 # container as a bare host, verifying the embed+exec path).
 e2e-standalone: orcinus-standalone
 	ORCINUS_E2E_LIVE=1 $(GO) test ./test/e2e/ -run TestLiveStandaloneRuntime -v -timeout 15m
+
+# The orcinus/base image (images/base): AlmaLinux libraries only, no shell,
+# non-root. ALMA_VERSION=10 needs an x86-64-v3 CPU.
+ALMA_VERSION ?= 9
+image-base:
+	docker build -t orcinus/base:$(ALMA_VERSION) --build-arg ALMA_VERSION=$(ALMA_VERSION) -f images/base/Containerfile images/base
+
+image-base-test: image-base
+	docker build -t orcinus/base-smoke --build-arg BASE=orcinus/base:$(ALMA_VERSION) -f images/base/test/Containerfile images/base/test
+	docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp orcinus/base-smoke
+	docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --entrypoint /hello orcinus/base-smoke
 
 tidy:
 	$(GO) mod tidy
