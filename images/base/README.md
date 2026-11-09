@@ -40,6 +40,9 @@ services:
     tmpfs: [/tmp]
 ```
 
+Sign it, and make the cluster run only signed images, with `orcinus sign`
+([SIGNING.md](../../docs/SIGNING.md), example: [examples/signed-app](../../examples/signed-app)).
+
 There is no shell to `orcinus exec` into. Debug with `kubectl debug` and an
 ephemeral container instead.
 

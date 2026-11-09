@@ -15,6 +15,7 @@ import (
 	"github.com/orcinustools/orcinus/pkg/deploy"
 	"github.com/orcinustools/orcinus/pkg/detect"
 	"github.com/orcinustools/orcinus/pkg/plugin"
+	"github.com/orcinustools/orcinus/pkg/sign"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -147,6 +148,15 @@ func AutoInstall(ctx context.Context, objects []runtime.Object, req Request) ([]
 // Apply server-side-applies the objects (+ prune + optional wait) and returns the
 // number of objects applied.
 func Apply(ctx context.Context, objects []runtime.Object, req Request) (int, error) {
+	// With image signing on, check the images now and pin them to the digests
+	// that were verified (the admission policy checks again in the cluster).
+	warnings, err := sign.Preflight(ctx, req.Kubeconfig, req.Namespace, objects)
+	if err != nil {
+		return 0, err
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "warning: unsigned image (signing is in audit mode): %s\n", w)
+	}
 	cfg, err := deploy.LoadRESTConfig(req.Kubeconfig)
 	if err != nil {
 		return 0, err

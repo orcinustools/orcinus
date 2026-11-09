@@ -680,6 +680,12 @@ func (k *Kubernetes) UpdateKubernetesObjects(name string, service kobject.Servic
 			securityContext.ReadOnlyRootFilesystem = &service.ReadOnly
 		}
 
+		// security_opt: no-new-privileges → no setuid/file-capability escalation
+		if service.NoNewPrivileges {
+			no := false
+			securityContext.AllowPrivilegeEscalation = &no
+		}
+
 		// update template only if securityContext is not empty
 		if *securityContext != (api.SecurityContext{}) {
 			template.Spec.Containers[0].SecurityContext = securityContext

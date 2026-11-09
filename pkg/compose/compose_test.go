@@ -1659,3 +1659,21 @@ secrets:
 		names[v.Name] = true
 	}
 }
+
+func TestConvertHardenedService(t *testing.T) {
+	dep := firstDeployment(t, convertString(t, `
+services:
+  app:
+    image: registry.example.com/app:1.0
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+`))
+	sc := dep.Spec.Template.Spec.Containers[0].SecurityContext
+	if sc == nil || sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation ||
+		sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem ||
+		sc.RunAsUser == nil || *sc.RunAsUser != 65532 || len(sc.Capabilities.Drop) != 1 {
+		t.Errorf("securityContext = %+v", sc)
+	}
+}

@@ -1,0 +1,14 @@
+# The app, built static and copied onto orcinus/base: no shell, no package
+# manager, non-root (UID 65532). Build orcinus/base first (make image-base),
+# or pass your registry's copy: --build-arg BASE=registry.example.com/base:9
+ARG BASE=orcinus/base:9
+
+FROM docker.io/library/golang:1.24 AS build
+WORKDIR /src
+COPY go.mod main.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /app .
+
+FROM ${BASE}
+COPY --from=build /app /app
+EXPOSE 8080
+ENTRYPOINT ["/app"]

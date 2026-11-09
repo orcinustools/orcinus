@@ -75,6 +75,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `dashboard` | — | Kubernetes Dashboard (web UI) |
 | `registry` | — | In-cluster image registry (`registry.orcinus-registry.svc:5000`) |
 | `grafana` | — | Grafana (point at Prometheus) |
+| `kyverno` | — | Kyverno policy engine; installed for you by `orcinus sign enforce` to admit only signed images — see [SIGNING.md](./SIGNING.md) |
 | `hami` | — | GPU scheduling + sharing for NVIDIA GPUs (HAMi) — see below |
 | `kubevirt` | `--emulation`, `--cdi` | KubeVirt (run VMs on the cluster) — see below |
 | `storage` | `--provider`, `--size`, `--replicas`, `--nfs-server`, `--nfs-path`, `--ceph-*` | Storage backends — see below |
