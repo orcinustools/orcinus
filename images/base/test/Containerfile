@@ -1,8 +1,8 @@
 # Smoke test: docker build -f images/base/test/Containerfile images/base/test
 ARG BASE=orcinus/base:9
 FROM docker.io/library/golang:1.24 AS go
-COPY main.go /src/
-RUN cd /src && CGO_ENABLED=0 go build -o /smoke main.go
+COPY go.mod main.go /src/
+RUN cd /src && CGO_ENABLED=0 go build -o /smoke .
 
 FROM docker.io/library/almalinux:9 AS cc
 RUN dnf -y -q install gcc >/dev/null
