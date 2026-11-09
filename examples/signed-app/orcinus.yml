@@ -1,0 +1,17 @@
+# A signed, locked-down service. Replace the image with the one you pushed and
+# signed (see README.md). With `orcinus sign enforce --mode enforce` on, deploy
+# refuses it unless it is signed by a trusted key, and pins it to its digest.
+services:
+  web:
+    image: registry.example.com/signed-app:1.0
+    ports:
+      - "8080"
+    x-orcinus-expose: ingress
+    x-orcinus-host: signed-app.example.com
+    # Immutable at run time: not root, read-only filesystem, no capabilities,
+    # no privilege escalation. /tmp is the only writable place (in memory).
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]

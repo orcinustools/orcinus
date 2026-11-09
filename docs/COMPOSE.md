@@ -29,6 +29,7 @@ Legend: ✅ supported · ⚠️ partial / best-effort · ❌ not mapped
 | `cap_add` / `cap_drop` | `securityContext.capabilities` | ✅ |
 | `privileged` | `securityContext.privileged` | ✅ |
 | `read_only` | `securityContext.readOnlyRootFilesystem` | ✅ |
+| `security_opt: [no-new-privileges:true]` | `securityContext.allowPrivilegeEscalation: false` (other options are ignored with a warning) | ✅ |
 | `tmpfs` | `emptyDir` (memory-backed) | ✅ |
 | `stop_grace_period` | `terminationGracePeriodSeconds` | ✅ |
 | `labels` | object/pod labels | ✅ |

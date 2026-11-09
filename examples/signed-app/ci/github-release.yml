@@ -1,0 +1,30 @@
+# Copy to .github/workflows/ in your app's repository.
+# Secrets: ORCINUS_SIGNING_KEY (contents of ci.key from `orcinus sign keygen ci`)
+#          ORCINUS_SIGNING_PASSWORD (its password)
+name: release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build, push and sign
+        env:
+          ORCINUS_SIGNING_KEY: ${{ secrets.ORCINUS_SIGNING_KEY }}
+          ORCINUS_SIGNING_PASSWORD: ${{ secrets.ORCINUS_SIGNING_PASSWORD }}
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME}
+          docker build -t "$IMAGE" -f Containerfile --build-arg BASE=ghcr.io/${{ github.repository_owner }}/base:9 .
+          docker push "$IMAGE"
+          curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install.sh | sh
+          orcinus sign image "$IMAGE"

@@ -134,6 +134,7 @@ type ServiceConfig struct {
 	ImagePullPolicy               string             `compose:"kompose.image-pull-policy"`
 	Pid                           string             `compose:"pid"`
 	Privileged                    bool               `compose:"privileged"`
+	NoNewPrivileges               bool               `compose:"security_opt"` // security_opt: no-new-privileges
 	Restart                       string             `compose:"restart"`
 	User                          string             `compose:"user"`
 	VolumesFrom                   []string           `compose:"volumes_from"`

@@ -116,6 +116,14 @@ var Registry = map[string]Spec{
 		Notes: "Needs /dev/kvm on the nodes — pass --emulation for software emulation instead (slower). " +
 			"Add --cdi to install the Containerized Data Importer for DataVolume disk images.",
 	},
+	"kyverno": {
+		Name:        "kyverno",
+		Description: "Kyverno policy engine (used by `orcinus sign enforce` to admit only signed images)",
+		Version:     kyvernoVersion,
+		Manifests:   []string{"https://github.com/kyverno/kyverno/releases/download/" + kyvernoVersion + "/install.yaml"},
+		WaitFor:     []WaitTarget{{Namespace: "kyverno", Name: "kyverno-admission-controller"}},
+		Notes:       "Installed for you by `orcinus sign enforce`; see docs/SIGNING.md.",
+	},
 	"metrics-server": {
 		Name:        "metrics-server",
 		Description: "Cluster metrics (kubectl top, HPA)",
@@ -227,6 +235,7 @@ func Install(ctx context.Context, name string, o Options) error {
 		return err
 	}
 
+	var all []runtime.Object // everything applied, for the footprint
 	// Create the install namespace first (many manifests assume it exists).
 	if plan.Namespace != "" {
 		if _, err := applier.Apply(ctx, []runtime.Object{namespaceObj(plan.Namespace)}, deploy.ApplyOptions{}); err != nil {
@@ -245,7 +254,9 @@ func Install(ctx context.Context, name string, o Options) error {
 		if _, err := applier.Apply(ctx, objs, deploy.ApplyOptions{DefaultNamespace: plan.Namespace}); err != nil {
 			return fmt.Errorf("apply %s: %w", spec.Name, err)
 		}
+		all = append(all, objs...)
 	}
+	all = append(all, plan.Objects...)
 	if len(plan.Objects) > 0 {
 		if _, err := applier.Apply(ctx, plan.Objects, deploy.ApplyOptions{}); err != nil {
 			return fmt.Errorf("apply %s: %w", spec.Name, err)
@@ -279,7 +290,11 @@ func Install(ctx context.Context, name string, o Options) error {
 		}
 	}
 
-	return recordInstalled(spec.Name)
+	fp := footprintOf(append(all, post...), plan.Namespace)
+	if err := labelNamespaces(ctx, o.Kubeconfig, spec.Name, fp.Namespaces); err != nil {
+		return err
+	}
+	return recordInstalled(spec.Name, fp)
 }
 
 // Get returns a plugin spec by name.
@@ -434,25 +449,40 @@ func certManagerIssuer(o Options) ([]runtime.Object, error) {
 // --- state ---
 
 type state struct {
-	Installed map[string]bool `json:"installed"`
+	Installed  map[string]bool      `json:"installed"`
+	Footprints map[string]footprint `json:"footprints,omitempty"`
+}
+
+// footprint is where a plugin runs: image signing exempts these.
+type footprint struct {
+	Namespaces    []string `json:"namespaces,omitempty"`    // labeled NamespaceLabel
+	DefaultImages []string `json:"defaultImages,omitempty"` // images of its workloads in "default"
 }
 
 func statePath() string { return filepath.Join(cluster.Dir(), "plugins.json") }
 
 func loadState() state {
-	s := state{Installed: map[string]bool{}}
+	s := state{Installed: map[string]bool{}, Footprints: map[string]footprint{}}
 	if b, err := os.ReadFile(statePath()); err == nil {
 		_ = json.Unmarshal(b, &s)
 		if s.Installed == nil {
 			s.Installed = map[string]bool{}
 		}
+		if s.Footprints == nil {
+			s.Footprints = map[string]footprint{}
+		}
 	}
 	return s
 }
 
-func recordInstalled(name string) error {
+func recordInstalled(name string, fp footprint) error {
 	s := loadState()
 	s.Installed[name] = true
+	s.Footprints[name] = fp
+	return saveState(s)
+}
+
+func saveState(s state) error {
 	b, _ := json.MarshalIndent(s, "", "  ")
 	if err := os.MkdirAll(cluster.Dir(), 0o755); err != nil {
 		return err
@@ -481,6 +511,7 @@ func Ready(ctx context.Context, a *deploy.Applier, name string) (known, ready bo
 func unrecord(name string) error {
 	s := loadState()
 	delete(s.Installed, name)
+	delete(s.Footprints, name)
 	b, _ := json.MarshalIndent(s, "", "  ")
 	if err := os.MkdirAll(cluster.Dir(), 0o755); err != nil {
 		return err

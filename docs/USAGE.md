@@ -43,6 +43,7 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.21 `restart`](#521-orcinus-restart)
   - [5.22 `config`](#522-orcinus-config)
   - [5.23 `exec`](#523-orcinus-exec)
+  - [5.24 `sign`](#524-orcinus-sign)
 - [6. Datastore](#6-datastore)
 - [7. Volumes & storage](#7-volumes--storage)
 - [8. Placement & node constraints](#8-placement--node-constraints)
@@ -890,6 +891,28 @@ orcinus exec db -- pg_isready || echo "database not up yet"
 
 ---
 
+### 5.24 `orcinus sign`
+
+Sign container images, and make the cluster run only images signed by keys it
+trusts, pinned to the digest that was verified. Full guide, CI pipelines and
+troubleshooting: [SIGNING.md](./SIGNING.md).
+
+```bash
+orcinus sign keygen                                  # ~/.orcinus/keys/default.{key,pub}
+orcinus sign image registry.example.com/app:1.0      # sign in the registry (docker login first)
+orcinus sign verify registry.example.com/app:1.0     # check against the cluster's trusted keys
+orcinus sign trust add default                       # trust a public key (ls, rm)
+orcinus sign enforce --mode audit|enforce|off        # installs Kyverno on first use
+orcinus sign exempt add <namespace|image-prefix>     # run unchecked (rm to undo)
+orcinus sign status                                  # mode, keys, unsigned running images
+```
+
+With signing on, `orcinus deploy` verifies every image before applying
+anything. Enforce mode refuses the deploy, and audit mode warns. Signed images
+are pinned to their digest in the applied objects.
+
+---
+
 ## 6. Datastore
 
 `orcinus cluster init` stores cluster state in a datastore. The default is **SQLite**;
@@ -1176,6 +1199,8 @@ This produces two Ingresses (`app.local`, `api.local`) with no duplication.
 |---|---|---|
 | `KUBECONFIG` | workload commands | Target cluster (see [§3.3](#33-kubeconfig-resolution)) |
 | `ORCINUS_DOCKER` | `init`/`join`/`status`/`down` | Container command (default `docker`; e.g. `sudo docker`) |
+| `ORCINUS_SIGNING_KEY` | `sign image` | Private key PEM, used when `--key` is not given (CI) |
+| `ORCINUS_SIGNING_PASSWORD` | `sign keygen`/`sign image` | Password of the signing key (instead of the terminal prompt) |
 
 **Files**
 
@@ -1184,6 +1209,7 @@ This produces two Ingresses (`app.local`, `api.local`) with no duplication.
 | `.env` (next to the compose file) | you | Read for `${VAR}` interpolation, and usable as an `env_file:` — see [Environment files](./COMPOSE.md#environment-files) |
 | `~/.orcinus/kubeconfig` | `init` | Kubeconfig for the local cluster |
 | `~/.orcinus/cluster.json` | `init` | Cluster state (name, server URL, token) used by `join`/`status`/`down` |
+| `~/.orcinus/keys/<name>.key`, `.pub` | `sign keygen` | Signing key pair (private key encrypted, mode 0600) |
 
 ---
 

@@ -70,7 +70,6 @@ func checkUnsupportedKey(composeProject *types.Project) []string {
 		"MacAddress":    false,
 		"MemSwapLimit":  false,
 		"NetworkMode":   false,
-		"SecurityOpt":   false,
 		"ShmSize":       false,
 		"StopSignal":    false,
 		"VolumeDriver":  false,
@@ -479,6 +478,15 @@ func dockerComposeToKomposeMapping(composeObject *types.Project) (kobject.Kompos
 		serviceConfig.Privileged = composeServiceConfig.Privileged
 		serviceConfig.User = composeServiceConfig.User
 		serviceConfig.ReadOnly = composeServiceConfig.ReadOnly
+		for _, opt := range composeServiceConfig.SecurityOpt {
+			switch strings.ReplaceAll(opt, "=", ":") {
+			case "no-new-privileges", "no-new-privileges:true":
+				serviceConfig.NoNewPrivileges = true
+			case "no-new-privileges:false":
+			default:
+				log.Warnf("Service %q: security_opt %q is not supported and is ignored (only no-new-privileges is)", name, opt)
+			}
+		}
 		serviceConfig.Stdin = composeServiceConfig.StdinOpen
 		serviceConfig.Tty = composeServiceConfig.Tty
 		serviceConfig.TmpFs = composeServiceConfig.Tmpfs
