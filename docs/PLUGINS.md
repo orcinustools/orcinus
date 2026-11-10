@@ -76,6 +76,7 @@ Installed plugins are recorded in `~/.orcinus/plugins.json`.
 | `registry` | — | In-cluster image registry (`registry.orcinus-registry.svc:5000`) |
 | `grafana` | — | Grafana (point at Prometheus) |
 | `kyverno` | — | Kyverno policy engine; installed for you by `orcinus sign enforce` to admit only signed images — see [SIGNING.md](./SIGNING.md) |
+| `tetragon` | — | Runtime monitoring (Tetragon, eBPF): commands run and files changed in containers; installed by `orcinus monitor enable` — see [MONITORING.md](./MONITORING.md) |
 | `hami` | — | GPU scheduling + sharing for NVIDIA GPUs (HAMi) — see below |
 | `kubevirt` | `--emulation`, `--cdi` | KubeVirt (run VMs on the cluster) — see below |
 | `storage` | `--provider`, `--size`, `--replicas`, `--nfs-server`, `--nfs-path`, `--ceph-*` | Storage backends — see below |

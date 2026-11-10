@@ -1,0 +1,53 @@
+# orcinus-file-changes: report files written, truncated, deleted or chmod-ed in
+# app containers. Read with `orcinus monitor files`; see docs/MONITORING.md.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: orcinus-file-changes
+spec:
+  podSelector:
+    matchExpressions:
+    - key: k8s:io.kubernetes.pod.namespace
+      operator: NotIn
+      values: [kube-system, kube-public, kube-node-lease, tetragon]
+  kprobes:
+  # Every write to a file. One event per process and file per minute, so an
+  # app appending to a log does not flood the stream.
+  - call: security_file_permission
+    syscall: false
+    args:
+    - index: 0
+      type: file
+    - index: 1
+      type: int # MAY_WRITE = 2
+    selectors:
+    - matchArgs:
+      - index: 0
+        operator: NotPrefix
+        values: [/proc/, /sys/, /dev/, "pipe:", "socket:", "anon_inode:"]
+      - index: 1
+        operator: Equal
+        values: ["2"]
+      matchActions:
+      - action: Post
+        rateLimit: 1m
+        rateLimitScope: process
+  - call: security_path_truncate
+    syscall: false
+    args:
+    - index: 0
+      type: path
+  - call: security_path_unlink
+    syscall: false
+    args:
+    - index: 0
+      type: path
+    - index: 1
+      type: dentry
+  - call: security_path_chmod
+    syscall: false
+    args:
+    - index: 0
+      type: path
+    - index: 1
+      type: uint16 # umode_t

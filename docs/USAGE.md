@@ -44,6 +44,7 @@ For design and internals, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
   - [5.22 `config`](#522-orcinus-config)
   - [5.23 `exec`](#523-orcinus-exec)
   - [5.24 `sign`](#524-orcinus-sign)
+  - [5.25 `monitor`](#525-orcinus-monitor)
 - [6. Datastore](#6-datastore)
 - [7. Volumes & storage](#7-volumes--storage)
 - [8. Placement & node constraints](#8-placement--node-constraints)
@@ -910,6 +911,25 @@ orcinus sign status                                  # mode, keys, unsigned runn
 With signing on, `orcinus deploy` verifies every image before applying
 anything. Enforce mode refuses the deploy, and audit mode warns. Signed images
 are pinned to their digest in the applied objects.
+
+### 5.25 `orcinus monitor`
+
+See what runs inside containers — commands executed, `kubectl exec` sessions,
+files written/truncated/deleted/chmod-ed — recorded from the kernel on every
+node (Tetragon, eBPF), and kill shells as they start. Full guide:
+[MONITORING.md](./MONITORING.md).
+
+```bash
+orcinus monitor enable                         # install the node agents (tetragon plugin)
+orcinus monitor [exec|files] [-s svc] [-n ns]  # events of the last hour (--since, -f, --json)
+orcinus monitor block-shell [--project p] [-n ns]   # kill shells/package managers in orcinus services
+orcinus monitor block-shell --off
+orcinus monitor status                         # agents ready, policies on
+orcinus monitor disable
+```
+
+`block-shell` touches only pods orcinus deployed; a service whose image starts
+through a shell script (`docker-entrypoint.sh`) will not start under it.
 
 ---
 

@@ -1,0 +1,23 @@
+# DELIBERATELY VULNERABLE — a demo for `orcinus monitor` (docs/MONITORING.md).
+# GET /?cmd=<command> runs <command> through a shell. Never expose it.
+#
+#   orcinus kubectl create namespace monitor-demo
+#   orcinus deploy -n monitor-demo
+#   orcinus monitor enable
+services:
+  rce:
+    image: python:3.12-alpine
+    ports: ["8080"]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"   # no .pyc cache writes cluttering `orcinus monitor files`
+    command:
+      - python
+      - -c
+      - |
+        import http.server, os, urllib.parse
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(s):
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(s.path).query)
+                rc = os.system(q.get("cmd", ["true"])[0])  # the hole
+                s.send_response(200); s.end_headers(); s.wfile.write(b"rc=%d\n" % rc)
+        http.server.HTTPServer(("", 8080), H).serve_forever()
