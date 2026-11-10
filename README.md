@@ -17,6 +17,7 @@ manifests required.
 - **Ingress & Traefik middlewares:** [`docs/INGRESS.md`](./docs/INGRESS.md)
 - **Private image registries:** [`docs/REGISTRY.md`](./docs/REGISTRY.md)
 - **Signed & immutable images (only signed images run):** [`docs/SIGNING.md`](./docs/SIGNING.md)
+- **Runtime monitoring (commands & file changes in containers, shell blocking):** [`docs/MONITORING.md`](./docs/MONITORING.md)
 - **HTTP REST API (+ OpenAPI/Swagger):** [`docs/API.md`](./docs/API.md)
 - **Plugins & cluster add-ons:** [`docs/PLUGINS.md`](./docs/PLUGINS.md)
 - **High-availability storage:** [`docs/HA-STORAGE.md`](./docs/HA-STORAGE.md)

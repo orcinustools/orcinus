@@ -124,6 +124,14 @@ var Registry = map[string]Spec{
 		WaitFor:     []WaitTarget{{Namespace: "kyverno", Name: "kyverno-admission-controller"}},
 		Notes:       "Installed for you by `orcinus sign enforce`; see docs/SIGNING.md.",
 	},
+	"tetragon": {
+		Name:        "tetragon",
+		Description: "Runtime monitoring — commands run and files changed in containers (Tetragon, eBPF)",
+		Version:     "v1.8.0",
+		Build:       buildTetragon,
+		Notes: "Read events with `orcinus monitor`; block shells with `orcinus monitor block-shell`. " +
+			"Needs a kernel with BTF (/sys/kernel/btf/vmlinux). See docs/MONITORING.md.",
+	},
 	"metrics-server": {
 		Name:        "metrics-server",
 		Description: "Cluster metrics (kubectl top, HPA)",
