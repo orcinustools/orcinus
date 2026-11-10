@@ -90,7 +90,7 @@ It is **opt-in at build time**: only the binary built with `make orcinus-standal
 has the runtime built in. The normal `orcinus` binary returns a clear error if you
 pass `--runtime standalone`, keeping the default binary small.
 
-**Install** the prebuilt `orcinus-standalone` (linux/amd64, attached to every
+**Install** the prebuilt `orcinus-standalone` (linux amd64/arm64, attached to every
 GitHub release):
 
 ```bash

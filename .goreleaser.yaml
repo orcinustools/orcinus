@@ -4,9 +4,9 @@ project_name: orcinus
 before:
   hooks:
     - go mod tidy
-    # Fetch the runtime asset embedded into the standalone binary (linux/amd64).
-    # Keep the pin in sync with the Makefile's RUNTIME_VERSION.
-    - bash -c 'test -f pkg/runtime/assets/k3s || (mkdir -p pkg/runtime/assets && curl -fsSL -o pkg/runtime/assets/k3s https://github.com/k3s-io/k3s/releases/download/v1.36.5+k3s1/k3s && chmod +x pkg/runtime/assets/k3s)'
+    # Fetch the runtime assets embedded into the standalone binaries (one per
+    # arch, upstream names). Keep the pin in sync with the Makefile's RUNTIME_VERSION.
+    - bash -c 'mkdir -p pkg/runtime/assets && for f in k3s k3s-arm64; do test -f pkg/runtime/assets/$f || { curl -fsSL -o pkg/runtime/assets/$f https://github.com/k3s-io/k3s/releases/download/v1.36.5+k3s1/$f && chmod +x pkg/runtime/assets/$f; } || exit 1; done'
 
 builds:
   # Default: lean, cross-platform binary (container runtime provider).
@@ -27,7 +27,7 @@ builds:
       - -X github.com/orcinustools/orcinus/pkg/version.GitCommit={{ .ShortCommit }}
 
   # Standalone: self-contained binary with the runtime embedded (`--runtime
-  # standalone`). linux/amd64 only — the embedded runtime asset is arch-specific.
+  # standalone`). Linux only; each arch embeds its own runtime asset.
   - id: orcinus-standalone
     main: ./cmd/orcinus
     binary: orcinus-standalone
@@ -37,6 +37,7 @@ builds:
       - linux
     goarch:
       - amd64
+      - arm64
     tags:
       - standalone
     ldflags:

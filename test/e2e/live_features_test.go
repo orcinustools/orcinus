@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -758,7 +759,11 @@ services:
 func TestLiveStandaloneRuntime(t *testing.T) {
 	requireLive(t)
 	root := repoRoot()
-	if _, err := os.Stat(root + "/pkg/runtime/assets/k3s"); err != nil {
+	asset := "k3s"
+	if runtime.GOARCH == "arm64" {
+		asset = "k3s-arm64"
+	}
+	if _, err := os.Stat(root + "/pkg/runtime/assets/" + asset); err != nil {
 		t.Skip("standalone runtime asset missing — run `make orcinus-standalone` first")
 	}
 	bin := t.TempDir() + "/orcinus-standalone"

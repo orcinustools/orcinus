@@ -45,11 +45,13 @@ e2e-exec:
 # The standalone runtime asset (downloaded once into pkg/runtime/assets, gitignored).
 # The standalone orcinus binary embeds it via go:embed + the `standalone` build tag.
 RUNTIME_VERSION ?= v1.36.5+k3s1
+# Upstream asset name for the target arch: k3s (amd64), k3s-arm64.
+RUNTIME_ASSET := $(if $(filter arm64,$(shell $(GO) env GOARCH)),k3s-arm64,k3s)
 runtime-asset:
-	@test -f pkg/runtime/assets/k3s || ( mkdir -p pkg/runtime/assets && \
-	  curl -fsSL -o pkg/runtime/assets/k3s \
-	  https://github.com/k3s-io/k3s/releases/download/$(RUNTIME_VERSION)/k3s && \
-	  chmod +x pkg/runtime/assets/k3s )
+	@test -f pkg/runtime/assets/$(RUNTIME_ASSET) || ( mkdir -p pkg/runtime/assets && \
+	  curl -fsSL -o pkg/runtime/assets/$(RUNTIME_ASSET) \
+	  https://github.com/k3s-io/k3s/releases/download/$(RUNTIME_VERSION)/$(RUNTIME_ASSET) && \
+	  chmod +x pkg/runtime/assets/$(RUNTIME_ASSET) )
 
 # The full orcinus binary WITH the standalone runtime built in. It can both drive
 # a cluster (`orcinus cluster init --runtime standalone`) and BE the runtime

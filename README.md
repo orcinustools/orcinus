@@ -33,7 +33,7 @@ Compose compatible and under our control.
 # Latest release binary (Linux/macOS, amd64/arm64)
 curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install.sh | sh
 
-# Standalone: self-contained binary with the runtime built in (linux/amd64)
+# Standalone: self-contained binary with the runtime built in (linux amd64/arm64)
 curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install-standalone.sh | sh
 
 # Or with Go
