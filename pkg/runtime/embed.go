@@ -3,12 +3,12 @@
 // Package runtime provides access to an optional standalone Kubernetes runtime.
 //
 // This file is compiled only with the `standalone` build tag; it uses
-// go:embed to bundle the runtime binary into the orcinus binary. The default
+// go:embed to bundle the runtime binary into the orcinus binary (the asset
+// itself is picked per arch in embed_<arch>.go). The default
 // build uses stub.go instead, so the standard binary stays small.
 package runtime
 
 import (
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -16,9 +16,6 @@ import (
 	"syscall"
 	"time"
 )
-
-//go:embed assets/k3s
-var runtimeBinary []byte
 
 // Available reports whether a standalone runtime was compiled into this binary.
 func Available() bool { return true }

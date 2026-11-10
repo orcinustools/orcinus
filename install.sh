@@ -7,7 +7,7 @@
 #   ORCINUS_VERSION      release tag to install (default: latest)
 #   ORCINUS_INSTALL      install directory       (default: /usr/local/bin)
 #   ORCINUS_STANDALONE   set to 1 to install the self-contained `orcinus-standalone`
-#                        binary (runtime built in; linux/amd64 only)
+#                        binary (runtime built in; linux amd64/arm64)
 set -eu
 
 REPO="orcinustools/orcinus"
@@ -46,8 +46,8 @@ ver_no_v="${VERSION#v}"
 
 # Select the lean or the standalone (runtime built-in) artifact.
 if [ "$STANDALONE" = "1" ] || [ "$STANDALONE" = "true" ]; then
-  [ "$os" = "linux" ] && [ "$arch" = "amd64" ] || \
-    die "orcinus-standalone is linux/amd64 only (got ${os}/${arch}); install the default binary instead"
+  [ "$os" = "linux" ] || \
+    die "orcinus-standalone is Linux only (got ${os}); install the default binary instead"
   binname="orcinus-standalone"
   asset="orcinus-standalone_${ver_no_v}_${os}_${arch}.tar.gz"
 else

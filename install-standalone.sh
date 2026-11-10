@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Orcinus standalone installer — downloads the self-contained `orcinus-standalone`
-# binary (Kubernetes runtime built in; no container runtime needed; linux/amd64).
+# binary (Kubernetes runtime built in; no container runtime needed; linux amd64/arm64).
 #
 #   curl -fsSL https://raw.githubusercontent.com/orcinustools/orcinus/main/install-standalone.sh | sh
 #

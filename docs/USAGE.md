@@ -105,7 +105,7 @@ The cluster-lifecycle commands (`init`/`join`/`status`/`down`) require a contain
 runtime on the host. Workload commands only need access to a cluster.
 
 **Standalone binary.** Each release also attaches `orcinus-standalone`
-(linux/amd64) — a single self-contained binary with the runtime built in, for the
+(linux amd64/arm64) — a single self-contained binary with the runtime built in, for the
 `--runtime standalone` provider (no container runtime needed):
 
 ```bash
